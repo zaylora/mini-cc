@@ -1,5 +1,6 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages";
-import { spawn } from "node:child_process";
+import { runBash } from "@/tools/bash.js";
+import { runEdit, runGlob, runRead, runWrite } from "@/tools/fs.js";
 
 type Handler = (input: unknown) => Promise<string>;
 
@@ -20,10 +21,63 @@ export const TOOLS: Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "read_file",
+    description: "Read a UTF-8 text file inside the current working directory.",
+    input_schema: {
+      type: "object",
+      properties: { path: { type: "string", description: "File path to read." } },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "write_file",
+    description: "Write UTF-8 content to a file inside the current working directory.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path to write." },
+        content: { type: "string", description: "Complete file content." },
+      },
+      required: ["path", "content"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_file",
+    description: "Replace the first exact occurrence of text in a UTF-8 file.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path to edit." },
+        old_text: { type: "string", description: "Exact text to replace." },
+        new_text: { type: "string", description: "Replacement text." },
+      },
+      required: ["path", "old_text", "new_text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "glob",
+    description: "List files inside the current working directory matching a glob pattern.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern such as src/**/*.ts." },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_HANDLERS: Record<string, Handler> = {
   bash: runBash,
+  read_file: runRead,
+  write_file: runWrite,
+  edit_file: runEdit,
+  glob: runGlob,
 };
 
 export async function dispatch(name: string, input: unknown): Promise<string> {
@@ -33,48 +87,4 @@ export async function dispatch(name: string, input: unknown): Promise<string> {
   }
 
   return handler(input);
-}
-
-async function runBash(input: unknown): Promise<string> {
-  if (!isCommandInput(input)) {
-    throw new Error("bash 工具需要字符串 command");
-  }
-
-  const command =
-    process.platform === "win32"
-      ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", input.command]
-      : ["/bin/sh", "-c", input.command];
-  const { stdout, stderr, exitCode } = await runCommand(command[0], command.slice(1));
-
-  const parts = [];
-  if (stdout.trim()) parts.push(`stdout:\n${stdout.trimEnd()}`);
-  if (stderr.trim()) parts.push(`stderr:\n${stderr.trimEnd()}`);
-  parts.push(`exit_code: ${exitCode}`);
-  return parts.join("\n");
-}
-
-function runCommand(
-  executable: string,
-  args: string[],
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: process.cwd() });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => (stdout += chunk));
-    child.stderr.on("data", (chunk: string) => (stderr += chunk));
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
-  });
-}
-
-function isCommandInput(input: unknown): input is { command: string } {
-  return (
-    typeof input === "object" &&
-    input !== null &&
-    typeof (input as { command?: unknown }).command === "string"
-  );
 }
