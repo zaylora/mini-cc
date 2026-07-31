@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
-import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { stdin, stdout } from "node:process";
-import { renderLastAssistantMessage } from "@/cli/render.js";
-import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
-import { createState } from "@/core/state.js";
+import { render } from "ink";
+import { createElement } from "react";
 import { createDefaultHookBus } from "@/hooks/index.js";
 import { scanSkills } from "@/tools/skill.js";
+import { App } from "@/tui/App.js";
 
 export function parseWorkingDirectory(args: string[]): string {
   const cwdIndex = args.indexOf("--cwd");
@@ -17,51 +16,29 @@ export function parseWorkingDirectory(args: string[]): string {
   return resolve(directory);
 }
 
+export function shouldUseTui(
+  input: NodeJS.ReadStream,
+  output: NodeJS.WriteStream,
+): boolean {
+  return Boolean(input.isTTY && output.isTTY);
+}
+
 export async function main(args = process.argv.slice(2)): Promise<void> {
   const workingDirectory = parseWorkingDirectory(args);
   process.chdir(workingDirectory);
 
-  const state = createState();
-  const skills = await scanSkills();
-  const readline = createInterface({ input: stdin, output: stdout });
-  const hooks = createDefaultHookBus();
-  try {
-    readline.setPrompt("> ");
-    readline.prompt();
-    for await (const inputLine of readline) {
-      const line = inputLine.trim();
-      if (!line) {
-        readline.prompt();
-        continue;
-      }
-
-      const promptHook = await hooks.trigger("UserPromptSubmit", { prompt: line });
-      const content =
-        promptHook.action === "inject" ? `${line}\n${promptHook.context}` : line;
-      state.messages.push({ role: "user", content });
-      try {
-        await agentLoop(state, {
-          hooks,
-          skills,
-          confirm: async (message) => {
-            const answer = await readline.question(`${message}\n允许执行？[y/N] `);
-            return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
-          },
-        });
-        stdout.write(`${renderLastAssistantMessage(state.messages)}\n`);
-      } catch (error) {
-        if (error instanceof MaxStepsExceededError) {
-          stdout.write(`${error.message}\n`);
-          readline.prompt();
-          continue;
-        }
-        throw error;
-      }
-      readline.prompt();
-    }
-  } finally {
-    readline.close();
+  if (!shouldUseTui(stdin, stdout)) {
+    stdout.write("mini-agent 的交互式界面需要在终端（TTY）中运行。\n");
+    process.exitCode = 1;
+    return;
   }
+
+  const skills = await scanSkills();
+  const hooks = createDefaultHookBus();
+  const { waitUntilExit } = render(
+    createElement(App, { workingDirectory, hooks, skills }),
+  );
+  await waitUntilExit();
 }
 
 if (import.meta.main) {

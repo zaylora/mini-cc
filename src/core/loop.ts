@@ -4,6 +4,7 @@ import type {
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import { MAX_STEPS, MAX_TOKENS } from "@/config.js";
+import type { AgentEvents } from "@/core/events.js";
 import { callModel } from "@/core/llm.js";
 import { createRuntimeTools } from "@/core/runtime.js";
 import type { State } from "@/core/state.js";
@@ -25,6 +26,7 @@ export interface AgentLoopOptions {
   maxSteps?: number;
   maxStopRespawns?: number;
   skills?: SkillRegistry;
+  events?: AgentEvents;
 }
 
 export async function agentLoop(
@@ -45,6 +47,7 @@ export async function agentLoop(
 
   while (state.steps < maxSteps) {
     state.steps += 1;
+    options.events?.emit("step-start", { step: state.steps, depth: state.depth });
     const response = await callModel(
       buildSystemPrompt(skills, state.depth),
       state.messages,
@@ -52,6 +55,16 @@ export async function agentLoop(
       MAX_TOKENS,
     );
     state.messages.push({ role: "assistant", content: response.content });
+    const assistantText = response.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+    if (assistantText) {
+      options.events?.emit("assistant-message", {
+        text: assistantText,
+        depth: state.depth,
+      });
+    }
 
     const toolUses = response.content.filter(
       (block): block is ToolUseBlock => block.type === "tool_use",
@@ -73,18 +86,40 @@ export async function agentLoop(
 
     const results: ToolResultBlockParam[] = [];
     for (const toolUse of toolUses) {
+      options.events?.emit("tool-start", {
+        id: toolUse.id,
+        toolName: toolUse.name,
+        input: toolUse.input,
+        depth: state.depth,
+      });
+
       const preToolUse = await options.hooks?.trigger("PreToolUse", {
         toolName: toolUse.name,
         input: toolUse.input,
       });
       if (preToolUse?.action === "block") {
         results.push(blockedResult(toolUse.id, preToolUse.reason));
+        options.events?.emit("tool-end", {
+          id: toolUse.id,
+          toolName: toolUse.name,
+          result: preToolUse.reason,
+          isError: true,
+          depth: state.depth,
+        });
         continue;
       }
       if (preToolUse?.action === "ask") {
         const allowed = await options.confirm?.(preToolUse.message);
         if (!allowed) {
-          results.push(blockedResult(toolUse.id, "权限被拒：用户未批准"));
+          const reason = "权限被拒：用户未批准";
+          results.push(blockedResult(toolUse.id, reason));
+          options.events?.emit("tool-end", {
+            id: toolUse.id,
+            toolName: toolUse.name,
+            result: reason,
+            isError: true,
+            depth: state.depth,
+          });
           continue;
         }
       }
@@ -96,20 +131,42 @@ export async function agentLoop(
           input: toolUse.input,
           result,
         });
+        const content =
+          postToolUse?.action === "inject"
+            ? `${result}\n${postToolUse.context}`
+            : result;
         results.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content:
-            postToolUse?.action === "inject"
-              ? `${result}\n${postToolUse.context}`
-              : result,
+          content,
         });
+        options.events?.emit("tool-end", {
+          id: toolUse.id,
+          toolName: toolUse.name,
+          result: content,
+          isError: false,
+          depth: state.depth,
+        });
+        if (toolUse.name === "todo_write") {
+          options.events?.emit("todo-changed", {
+            todos: state.todos,
+            depth: state.depth,
+          });
+        }
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         results.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: error instanceof Error ? error.message : String(error),
+          content: message,
           is_error: true,
+        });
+        options.events?.emit("tool-end", {
+          id: toolUse.id,
+          toolName: toolUse.name,
+          result: message,
+          isError: true,
+          depth: state.depth,
         });
       }
     }

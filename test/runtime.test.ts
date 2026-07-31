@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createAgentEvents } from "@/core/events.js";
 import { agentLoop } from "@/core/loop.js";
 import { createRuntimeTools } from "@/core/runtime.js";
 import { createState } from "@/core/state.js";
@@ -113,6 +114,35 @@ describe("v4 runtime", () => {
         role: "assistant",
         content: [{ type: "text", text: "父任务完成" }],
       });
+    } finally {
+      restore();
+      server.stop(true);
+    }
+  });
+
+  test("events 携带 depth，子 Agent 的事件 depth 为父级 + 1", async () => {
+    const requests: ModelRequest[] = [];
+    const command = process.platform === "win32" ? "Write-Output child-ok" : "printf child-ok";
+    const server = createModelServer(requests, [
+      [{ type: "tool_use", id: "parent-task", name: "task", input: { description: "检查子任务" } }],
+      [{ type: "tool_use", id: "child-bash", name: "bash", input: { command } }],
+      [{ type: "text", text: "子任务结论" }],
+      [{ type: "text", text: "父任务完成" }],
+    ]);
+    const restore = useTestModel(server.url.origin);
+    const events = createAgentEvents();
+    const depthsByToolStart: Record<string, number> = {};
+    events.on("tool-start", ({ id, depth }) => {
+      depthsByToolStart[id] = depth;
+    });
+
+    try {
+      const state = createState();
+      state.messages.push({ role: "user", content: "父级触发子任务" });
+      await agentLoop(state, { events });
+
+      expect(depthsByToolStart["parent-task"]).toBe(0);
+      expect(depthsByToolStart["child-bash"]).toBe(1);
     } finally {
       restore();
       server.stop(true);

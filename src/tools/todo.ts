@@ -1,6 +1,6 @@
 import type { State, Todo, TodoStatus } from "@/core/state.js";
 
-const STATUS_MARKS: Record<TodoStatus, string> = {
+export const STATUS_MARKS: Record<TodoStatus, string> = {
   pending: " ",
   in_progress: ">",
   completed: "x",

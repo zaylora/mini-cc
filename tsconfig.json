@@ -3,13 +3,14 @@
     "target": "ES2022",
     "module": "Preserve",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "paths": {
       "@/*": ["./src/*"]
     },
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["bun", "react"]
   },
   "include": ["src", "test"]
 }

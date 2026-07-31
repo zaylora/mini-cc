@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createAgentEvents } from "@/core/events.js";
 import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState } from "@/core/state.js";
 import { HookBus } from "@/hooks/bus.js";
@@ -191,3 +192,52 @@ function useTestModel(baseUrl: string): () => void {
     restoreEnvironment("MODEL_ID", previous[2]);
   };
 }
+
+test("events 依次触发 step-start/tool-start/tool-end/todo-changed/assistant-message", async () => {
+  const requests: Array<{ messages: unknown[] }> = [];
+  const server = createModelServer(requests, [
+    [
+      {
+        type: "tool_use",
+        id: "todo-1",
+        name: "todo_write",
+        input: { todos: [{ content: "写计划", status: "in_progress" }] },
+      },
+    ],
+    [{ type: "text", text: "完成" }],
+  ]);
+  const restore = useTestModel(server.url.origin);
+  const events = createAgentEvents();
+  const seen: string[] = [];
+  events.on("step-start", ({ step, depth }) => seen.push(`step-start:${step}:${depth}`));
+  events.on("tool-start", ({ id, toolName, depth }) =>
+    seen.push(`tool-start:${id}:${toolName}:${depth}`),
+  );
+  events.on("tool-end", ({ id, isError, depth }) =>
+    seen.push(`tool-end:${id}:${isError}:${depth}`),
+  );
+  events.on("assistant-message", ({ text, depth }) =>
+    seen.push(`assistant-message:${text}:${depth}`),
+  );
+  events.on("todo-changed", ({ todos, depth }) =>
+    seen.push(`todo-changed:${todos.length}:${depth}`),
+  );
+
+  try {
+    const state = createState();
+    state.messages.push({ role: "user", content: "写个计划" });
+    await agentLoop(state, { events });
+
+    expect(seen).toEqual([
+      "step-start:1:0",
+      "tool-start:todo-1:todo_write:0",
+      "tool-end:todo-1:false:0",
+      "todo-changed:1:0",
+      "step-start:2:0",
+      "assistant-message:完成:0",
+    ]);
+  } finally {
+    restore();
+    server.stop(true);
+  }
+});

@@ -1,4 +1,5 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { AgentEvents } from "@/core/events.js";
 import { createState, type State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
 import type { SkillRegistry } from "@/tools/skill.js";
@@ -9,6 +10,7 @@ export interface SubagentOptions {
   maxSteps?: number;
   maxStopRespawns?: number;
   skills?: SkillRegistry;
+  events?: AgentEvents;
 }
 
 type RunAgent = (state: State, options: SubagentOptions) => Promise<void>;

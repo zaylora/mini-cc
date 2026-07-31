@@ -1,5 +1,11 @@
 export { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 export type { AgentLoopOptions } from "@/core/loop.js";
+export { createAgentEvents } from "@/core/events.js";
+export type {
+  AgentEventMap,
+  AgentEventName,
+  AgentEvents,
+} from "@/core/events.js";
 export { createRuntimeTools } from "@/core/runtime.js";
 export type { RuntimeToolContext, RuntimeTools } from "@/core/runtime.js";
 export { createState } from "@/core/state.js";

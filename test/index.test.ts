@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseWorkingDirectory } from "@/cli/main.js";
+import { parseWorkingDirectory, shouldUseTui } from "@/cli/main.js";
 import { dispatch } from "@/tools/registry.js";
 
 test("包入口可以正常加载", async () => {
@@ -18,6 +18,29 @@ describe("工作目录", () => {
     expect(parseWorkingDirectory(["--cwd", directory])).toBe(
       join(tmpdir(), "..", "mini-agent-test"),
     );
+  });
+});
+
+describe("TTY 判定", () => {
+  test("stdin 与 stdout 都是 TTY 时才使用 TUI", () => {
+    expect(
+      shouldUseTui(
+        { isTTY: true } as NodeJS.ReadStream,
+        { isTTY: true } as NodeJS.WriteStream,
+      ),
+    ).toBe(true);
+    expect(
+      shouldUseTui(
+        { isTTY: false } as NodeJS.ReadStream,
+        { isTTY: true } as NodeJS.WriteStream,
+      ),
+    ).toBe(false);
+    expect(
+      shouldUseTui(
+        { isTTY: true } as NodeJS.ReadStream,
+        { isTTY: false } as NodeJS.WriteStream,
+      ),
+    ).toBe(false);
   });
 });
 
