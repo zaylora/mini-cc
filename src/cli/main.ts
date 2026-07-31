@@ -6,6 +6,7 @@ import { stdin, stdout } from "node:process";
 import { renderLastAssistantMessage } from "@/cli/render.js";
 import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState } from "@/core/state.js";
+import { createDefaultHookBus } from "@/hooks/index.js";
 
 export function parseWorkingDirectory(args: string[]): string {
   const cwdIndex = args.indexOf("--cwd");
@@ -21,6 +22,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   const state = createState();
   const readline = createInterface({ input: stdin, output: stdout });
+  const hooks = createDefaultHookBus();
   try {
     readline.setPrompt("> ");
     readline.prompt();
@@ -31,9 +33,18 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         continue;
       }
 
-      state.messages.push({ role: "user", content: line });
+      const promptHook = await hooks.trigger("UserPromptSubmit", { prompt: line });
+      const content =
+        promptHook.action === "inject" ? `${line}\n${promptHook.context}` : line;
+      state.messages.push({ role: "user", content });
       try {
-        await agentLoop(state);
+        await agentLoop(state, {
+          hooks,
+          confirm: async (message) => {
+            const answer = await readline.question(`${message}\n允许执行？[y/N] `);
+            return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+          },
+        });
         stdout.write(`${renderLastAssistantMessage(state.messages)}\n`);
       } catch (error) {
         if (error instanceof MaxStepsExceededError) {

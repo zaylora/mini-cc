@@ -33,7 +33,9 @@ bun run start
 bun run start -- --cwd E:\github\other-project
 ```
 
-Agent 可以执行模型生成的 shell 命令，请只在你允许它读写的目录中启动。
+Agent 会在危险 shell 命令执行前请求确认，默认拒绝；硬拒绝规则不会提供绕过入口。每次通过权限门的工具调用记录到 `.mini-agent-audit.jsonl`，文件写入或编辑成功后会自动执行 `git add`。
+
+权限、审计与自动暂存都通过 Hook 总线注册。当前提供 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop` 四个事件；安全只由高优先级权限 hook 负责，新增 hook 不应承担或绕过权限判断。
 
 ## 本地 npm 安装
 
