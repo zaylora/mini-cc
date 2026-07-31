@@ -7,6 +7,7 @@ import { renderLastAssistantMessage } from "@/cli/render.js";
 import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState } from "@/core/state.js";
 import { createDefaultHookBus } from "@/hooks/index.js";
+import { scanSkills } from "@/tools/skill.js";
 
 export function parseWorkingDirectory(args: string[]): string {
   const cwdIndex = args.indexOf("--cwd");
@@ -21,6 +22,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   process.chdir(workingDirectory);
 
   const state = createState();
+  const skills = await scanSkills();
   const readline = createInterface({ input: stdin, output: stdout });
   const hooks = createDefaultHookBus();
   try {
@@ -40,6 +42,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       try {
         await agentLoop(state, {
           hooks,
+          skills,
           confirm: async (message) => {
             const answer = await readline.question(`${message}\n允许执行？[y/N] `);
             return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";

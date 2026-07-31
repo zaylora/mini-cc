@@ -26,6 +26,9 @@ describe("文件工具", () => {
       "write_file",
       "edit_file",
       "glob",
+      "todo_write",
+      "task",
+      "load_skill",
     ]);
   });
 

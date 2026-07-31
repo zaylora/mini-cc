@@ -4,7 +4,7 @@ import { runEdit, runGlob, runRead, runWrite } from "@/tools/fs.js";
 
 type Handler = (input: unknown) => Promise<string>;
 
-export const TOOLS: Tool[] = [
+const BASE_TOOLS: Tool[] = [
   {
     name: "bash",
     description:
@@ -72,7 +72,60 @@ export const TOOLS: Tool[] = [
   },
 ];
 
-const TOOL_HANDLERS: Record<string, Handler> = {
+const TODO_TOOL: Tool = {
+  name: "todo_write",
+  description: "Create or update the current task plan and its progress.",
+  input_schema: {
+    type: "object",
+    properties: {
+      todos: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            content: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["pending", "in_progress", "completed"],
+            },
+          },
+          required: ["content", "status"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["todos"],
+    additionalProperties: false,
+  },
+};
+
+const TASK_TOOL: Tool = {
+  name: "task",
+  description: "Launch an isolated subagent for one complex subtask and return only its conclusion.",
+  input_schema: {
+    type: "object",
+    properties: {
+      description: { type: "string", description: "A complete, self-contained subtask." },
+    },
+    required: ["description"],
+    additionalProperties: false,
+  },
+};
+
+const SKILL_TOOL: Tool = {
+  name: "load_skill",
+  description: "Load the full instructions for one skill listed in the system prompt.",
+  input_schema: {
+    type: "object",
+    properties: { name: { type: "string", description: "Registered skill name." } },
+    required: ["name"],
+    additionalProperties: false,
+  },
+};
+
+export const TOOLS: Tool[] = [...BASE_TOOLS, TODO_TOOL, TASK_TOOL, SKILL_TOOL];
+
+const BASE_HANDLERS: Record<string, Handler> = {
   bash: runBash,
   read_file: runRead,
   write_file: runWrite,
@@ -81,10 +134,15 @@ const TOOL_HANDLERS: Record<string, Handler> = {
 };
 
 export async function dispatch(name: string, input: unknown): Promise<string> {
-  const handler = TOOL_HANDLERS[name];
-  if (!handler) {
-    throw new Error(`未知工具: ${name}`);
-  }
+  return dispatchWithHandlers(BASE_HANDLERS, name, input);
+}
 
+async function dispatchWithHandlers(
+  handlers: Record<string, Handler>,
+  name: string,
+  input: unknown,
+): Promise<string> {
+  const handler = handlers[name];
+  if (!handler) throw new Error(`未知工具: ${name}`);
   return handler(input);
 }

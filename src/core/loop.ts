@@ -5,10 +5,12 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import { MAX_STEPS, MAX_TOKENS } from "@/config.js";
 import { callModel } from "@/core/llm.js";
+import { createRuntimeTools } from "@/core/runtime.js";
 import type { State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
-import { SYSTEM_PROMPT } from "@/prompt/index.js";
-import { dispatch, TOOLS } from "@/tools/registry.js";
+import { buildSystemPrompt } from "@/prompt/index.js";
+import { scanSkills, type SkillRegistry } from "@/tools/skill.js";
+import { spawnSubagent } from "@/tools/task.js";
 
 export class MaxStepsExceededError extends Error {
   constructor(maxSteps: number) {
@@ -22,6 +24,7 @@ export interface AgentLoopOptions {
   confirm?: (message: string) => Promise<boolean>;
   maxSteps?: number;
   maxStopRespawns?: number;
+  skills?: SkillRegistry;
 }
 
 export async function agentLoop(
@@ -30,15 +33,22 @@ export async function agentLoop(
 ): Promise<void> {
   const maxSteps = options.maxSteps ?? MAX_STEPS;
   const maxStopRespawns = options.maxStopRespawns ?? 1;
+  const skills = options.skills ?? await scanSkills();
+  const runtime = createRuntimeTools({
+    state,
+    skills,
+    spawnSubagent: (description) =>
+      spawnSubagent(description, state.depth, { ...options, skills }, agentLoop),
+  });
   state.steps = 0;
   state.stopRespawnCount = 0;
 
   while (state.steps < maxSteps) {
     state.steps += 1;
     const response = await callModel(
-      SYSTEM_PROMPT,
+      buildSystemPrompt(skills, state.depth),
       state.messages,
-      TOOLS,
+      runtime.definitions,
       MAX_TOKENS,
     );
     state.messages.push({ role: "assistant", content: response.content });
@@ -80,7 +90,7 @@ export async function agentLoop(
       }
 
       try {
-        const result = await dispatch(toolUse.name, toolUse.input);
+        const result = await runtime.dispatch(toolUse.name, toolUse.input);
         const postToolUse = await options.hooks?.trigger("PostToolUse", {
           toolName: toolUse.name,
           input: toolUse.input,
