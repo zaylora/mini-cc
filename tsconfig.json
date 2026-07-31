@@ -3,7 +3,11 @@
     "target": "ES2022",
     "module": "Preserve",
     "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "types": ["bun"]
   },
