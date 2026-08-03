@@ -10,6 +10,15 @@ export { createRuntimeTools } from "@/core/runtime.js";
 export type { RuntimeToolContext, RuntimeTools } from "@/core/runtime.js";
 export { createState } from "@/core/state.js";
 export type { State, Todo, TodoStatus } from "@/core/state.js";
+export { createContextManager } from "@/context/manager.js";
+export type {
+  ContextManager,
+  ContextManagerOptions,
+} from "@/context/manager.js";
+export { callModelWithRecovery } from "@/core/llm.js";
+export type { ModelRecoveryOptions, ModelRequest } from "@/core/llm.js";
+export { createPromptAssembler } from "@/prompt/assembler.js";
+export type { PromptAssembler } from "@/prompt/assembler.js";
 export * from "@/hooks/index.js";
 export { dispatch, TOOLS } from "@/tools/registry.js";
 export {

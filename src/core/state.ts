@@ -1,4 +1,6 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import { join } from "node:path";
+import { MAX_TOKENS, getModelId } from "@/config.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 
@@ -13,8 +15,35 @@ export interface State {
   stopRespawnCount: number;
   todos: Todo[];
   depth: number;
+  workspace: string;
+  enabledTools: string[];
+  memoryPath: string;
+  modelId: string;
+  maxTokens: number;
+  consecutive529: number;
+  compactFailures: number;
+  recoveryCount: number;
+  hasEscalatedMaxTokens: boolean;
+  hasAttemptedReactiveCompact: boolean;
 }
 
 export function createState(depth = 0): State {
-  return { messages: [], steps: 0, stopRespawnCount: 0, todos: [], depth };
+  const workspace = process.cwd();
+  return {
+    messages: [],
+    steps: 0,
+    stopRespawnCount: 0,
+    todos: [],
+    depth,
+    workspace,
+    enabledTools: [],
+    memoryPath: join(workspace, ".memory", "MEMORY.md"),
+    modelId: getModelId(),
+    maxTokens: MAX_TOKENS,
+    consecutive529: 0,
+    compactFailures: 0,
+    recoveryCount: 0,
+    hasEscalatedMaxTokens: false,
+    hasAttemptedReactiveCompact: false,
+  };
 }

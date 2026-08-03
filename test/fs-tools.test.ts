@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runBash } from "@/tools/bash.js";
 import { dispatch, TOOLS } from "@/tools/registry.js";
 
 describe("文件工具", () => {
@@ -66,6 +67,16 @@ describe("文件工具", () => {
     await Bun.write("second.js", "");
 
     expect(await dispatch("glob", { pattern: "*.ts" })).toBe("first.ts");
+  });
+
+  test("bash 命令超时后终止并返回错误", async () => {
+    const command = process.platform === "win32"
+      ? "Start-Sleep -Seconds 30"
+      : "sleep 30";
+
+    await expect(runBash({ command }, 100)).rejects.toThrow(
+      "bash 命令执行超时",
+    );
   });
 
   test("所有文件工具拒绝访问工作目录外", async () => {

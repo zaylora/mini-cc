@@ -3,13 +3,14 @@ import type {
   ToolResultBlockParam,
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
-import { MAX_STEPS, MAX_TOKENS } from "@/config.js";
+import { MAX_STEPS, MAX_TOKENS, getModelId } from "@/config.js";
+import { createContextManager } from "@/context/manager.js";
 import type { AgentEvents } from "@/core/events.js";
-import { callModel } from "@/core/llm.js";
+import { callModelWithRecovery, summarizeMessages } from "@/core/llm.js";
 import { createRuntimeTools } from "@/core/runtime.js";
 import type { State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
-import { buildSystemPrompt } from "@/prompt/index.js";
+import { createPromptAssembler } from "@/prompt/assembler.js";
 import { scanSkills, type SkillRegistry } from "@/tools/skill.js";
 import { spawnSubagent } from "@/tools/task.js";
 
@@ -42,18 +43,32 @@ export async function agentLoop(
     spawnSubagent: (description) =>
       spawnSubagent(description, state.depth, { ...options, skills }, agentLoop),
   });
+  const promptAssembler = createPromptAssembler(skills);
+  const contextManager = createContextManager({
+    summarize: (messages) => summarizeMessages(state, messages),
+  });
   state.steps = 0;
   state.stopRespawnCount = 0;
+  state.enabledTools = runtime.definitions.map((tool) => tool.name);
+  state.workspace = process.cwd();
+  state.modelId = getModelId();
+  state.maxTokens = MAX_TOKENS;
+  state.consecutive529 = 0;
+  state.recoveryCount = 0;
+  state.hasEscalatedMaxTokens = false;
+  state.hasAttemptedReactiveCompact = false;
 
   while (state.steps < maxSteps) {
     state.steps += 1;
     options.events?.emit("step-start", { step: state.steps, depth: state.depth });
-    const response = await callModel(
-      buildSystemPrompt(skills, state.depth),
-      state.messages,
-      runtime.definitions,
-      MAX_TOKENS,
-    );
+    const system = await promptAssembler.get(state);
+    const response = await callModelWithRecovery(state, {
+      system,
+      tools: runtime.definitions,
+      beforeRequest: (currentState) => contextManager.manage(currentState),
+      reactiveCompact: (currentState) => contextManager.reactiveCompact(currentState),
+      fallbackModelId: process.env.FALLBACK_MODEL_ID,
+    });
     state.messages.push({ role: "assistant", content: response.content });
     const assistantText = response.content
       .filter((block) => block.type === "text")
