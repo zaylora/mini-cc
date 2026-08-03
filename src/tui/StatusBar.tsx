@@ -1,5 +1,4 @@
 import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
 
 export interface StatusBarProps {
   cwd: string;
@@ -14,12 +13,7 @@ export function StatusBar({ cwd, model, step, busy }: StatusBarProps): JSX.Eleme
       <Text dimColor>
         {cwd} · {model} · step {step}
       </Text>
-      {busy ? (
-        <Text color="yellow">
-          {" "}
-          <Spinner type="dots" /> 执行中…
-        </Text>
-      ) : null}
+      {busy ? <Text color="yellow"> 执行中…</Text> : null}
     </Box>
   );
 }

@@ -35,7 +35,8 @@ export function createContextManager(
   const keepRecentToolResults = options.keepRecentToolResults ?? 3;
   const toolResultBudget = options.toolResultBudget ?? 200_000;
   const toolResultPreview = options.toolResultPreview ?? 2_000;
-  const toolResultPersistThreshold = options.toolResultPersistThreshold ?? 30_000;
+  const toolResultPersistThreshold =
+    options.toolResultPersistThreshold ?? 30_000;
   const compactThreshold = options.compactThreshold ?? 160_000;
   const reactiveTailMessages = options.reactiveTailMessages ?? 5;
   const maxCompactFailures = options.maxCompactFailures ?? 3;
@@ -111,8 +112,8 @@ async function applyToolResultBudget(
   let total = results.reduce((sum, result) => sum + result.content.length, 0);
   if (total <= maxCharacters) return;
 
-  const ranked = [...results].sort((left, right) =>
-    right.content.length - left.content.length
+  const ranked = [...results].sort(
+    (left, right) => right.content.length - left.content.length,
   );
   for (const result of ranked) {
     if (total <= maxCharacters) break;
@@ -138,7 +139,10 @@ function snipMessages(
   let tailStart = messages.length - Math.max(0, maxMessages - keepHead);
 
   if (headEnd > 0 && hasToolUse(messages[headEnd - 1])) {
-    while (headEnd < messages.length && isToolResultMessage(messages[headEnd])) {
+    while (
+      headEnd < messages.length &&
+      isToolResultMessage(messages[headEnd])
+    ) {
       headEnd += 1;
     }
   }
@@ -155,14 +159,20 @@ function snipMessages(
   const removed = tailStart - headEnd;
   return [
     ...messages.slice(0, headEnd),
-    { role: "user", content: `[snipped ${removed} messages from conversation middle]` },
+    {
+      role: "user",
+      content: `[snipped ${removed} messages from conversation middle]`,
+    },
     ...messages.slice(tailStart),
   ];
 }
 
 function microCompact(messages: MessageParam[], keepRecent: number): void {
   const results = collectToolResults(messages);
-  for (const result of results.slice(0, Math.max(0, results.length - keepRecent))) {
+  for (const result of results.slice(
+    0,
+    Math.max(0, results.length - keepRecent),
+  )) {
     if (result.content.length > 120) result.block.content = MICRO_PLACEHOLDER;
   }
 }
@@ -184,7 +194,8 @@ function collectToolResults(messages: MessageParam[]): Array<{
 }> {
   const results: Array<{ block: ToolResultBlockParam; content: string }> = [];
   for (const message of messages) {
-    if (message.role !== "user" || typeof message.content === "string") continue;
+    if (message.role !== "user" || typeof message.content === "string")
+      continue;
     for (const block of message.content) {
       if (block.type !== "tool_result") continue;
       results.push({ block, content: textContent(block.content) });
@@ -194,21 +205,27 @@ function collectToolResults(messages: MessageParam[]): Array<{
 }
 
 function hasToolUse(message: MessageParam | undefined): boolean {
-  return message?.role === "assistant" &&
+  return (
+    message?.role === "assistant" &&
     Array.isArray(message.content) &&
-    message.content.some((block) => block.type === "tool_use");
+    message.content.some((block) => block.type === "tool_use")
+  );
 }
 
 function isToolResultMessage(message: MessageParam | undefined): boolean {
-  return message?.role === "user" &&
+  return (
+    message?.role === "user" &&
     Array.isArray(message.content) &&
-    message.content.some((block) => block.type === "tool_result");
+    message.content.some((block) => block.type === "tool_result")
+  );
 }
 
 function textContent(content: ToolResultBlockParam["content"]): string {
   if (content === undefined) return "";
   if (typeof content === "string") return content;
-  return content.map((block) => block.type === "text" ? block.text : "[image]").join("\n");
+  return content
+    .map((block) => (block.type === "text" ? block.text : "[image]"))
+    .join("\n");
 }
 
 function estimateSize(messages: MessageParam[]): number {
@@ -218,6 +235,7 @@ function estimateSize(messages: MessageParam[]): number {
 function requireSummarizer(
   summarize: ContextManagerOptions["summarize"],
 ): (messages: MessageParam[]) => Promise<string> {
-  if (!summarize) throw new Error("ContextManager 需要 summarize 才能执行 LLM 压缩");
+  if (!summarize)
+    throw new Error("ContextManager 需要 summarize 才能执行 LLM 压缩");
   return summarize;
 }

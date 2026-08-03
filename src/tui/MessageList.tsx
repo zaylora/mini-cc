@@ -1,28 +1,56 @@
-import { Box, Text } from "ink";
+import { Box, Static, Text } from "ink";
 import type { DisplayEntry } from "@/tui/displayLog.js";
+import {
+  describeToolCall,
+  toolDotColor,
+  toolLabel,
+} from "@/tui/toolCallFormat.js";
 
 export interface MessageListProps {
-  entries: DisplayEntry[];
+  staticEntries: DisplayEntry[];
+  pendingEntries: DisplayEntry[];
 }
 
-export function MessageList({ entries }: MessageListProps): JSX.Element {
+export function MessageList({ staticEntries, pendingEntries }: MessageListProps): JSX.Element {
   return (
     <Box flexDirection="column">
-      {entries.map((entry, index) => (
-        <Text key={index}>{formatEntry(entry)}</Text>
+      <Static items={staticEntries}>
+        {(entry) => renderEntry(entry)}
+      </Static>
+      {pendingEntries.map((entry) => (
+        renderEntry(entry)
       ))}
     </Box>
   );
 }
 
-function formatEntry(entry: DisplayEntry): string {
+type ToolEntry = Extract<DisplayEntry, { kind: "tool" }>;
+
+function renderEntry(entry: DisplayEntry): JSX.Element {
+  return entry.kind === "tool" ? (
+    <ToolLine key={entry.id} entry={entry} />
+  ) : (
+    <Text key={entry.id}>{formatEntry(entry)}</Text>
+  );
+}
+
+function ToolLine({ entry }: { entry: ToolEntry }): JSX.Element {
+  const indent = "  ".repeat(entry.depth) + (entry.depth > 0 ? "↳ " : "");
+  return (
+    <Text>
+      {indent}
+      <Text color={toolDotColor(entry)}>●</Text>{" "}
+      {toolLabel(entry.toolName)}({describeToolCall(entry.toolName, entry.input)})
+    </Text>
+  );
+}
+
+function formatEntry(
+  entry: Exclude<DisplayEntry, { kind: "tool" }>,
+): string {
   if (entry.kind === "user") return `> ${entry.text}`;
   if (entry.kind === "system") return `* ${entry.text}`;
 
   const indent = "  ".repeat(entry.depth) + (entry.depth > 0 ? "↳ " : "");
-  if (entry.kind === "assistant") return `${indent}${entry.text}`;
-
-  const status = entry.result === undefined ? "运行中…" : entry.isError ? "失败" : "完成";
-  const resultLine = entry.result === undefined ? "" : `\n${indent}  ${entry.result}`;
-  return `${indent}[工具 ${entry.toolName} ${status}]${resultLine}`;
+  return `${indent}${entry.text}`;
 }

@@ -14,7 +14,8 @@ import {
   appendToolStart,
   appendUserEntry,
   applyToolEnd,
-  type DisplayEntry,
+  createDisplayLog,
+  type DisplayLog,
 } from "@/tui/displayLog.js";
 import { InputBox } from "@/tui/InputBox.js";
 import { MessageList } from "@/tui/MessageList.js";
@@ -33,7 +34,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
   const eventsRef = useRef(createAgentEvents());
   const confirmBridgeRef = useRef(createConfirmBridge());
 
-  const [entries, setEntries] = useState<DisplayEntry[]>([]);
+  const [displayLog, setDisplayLog] = useState<DisplayLog>(createDisplayLog);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -44,10 +45,10 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
     const events = eventsRef.current;
     events.on("step-start", ({ step: nextStep }) => setStep(nextStep));
     events.on("assistant-message", ({ text, depth }) =>
-      setEntries((log) => appendAssistantMessage(log, { text, depth })),
+      setDisplayLog((log) => appendAssistantMessage(log, { text, depth })),
     );
-    events.on("tool-start", (payload) => setEntries((log) => appendToolStart(log, payload)));
-    events.on("tool-end", (payload) => setEntries((log) => applyToolEnd(log, payload)));
+    events.on("tool-start", (payload) => setDisplayLog((log) => appendToolStart(log, payload)));
+    events.on("tool-end", (payload) => setDisplayLog((log) => applyToolEnd(log, payload)));
     events.on("todo-changed", ({ todos: nextTodos }) => setTodos(nextTodos));
     confirmBridgeRef.current.subscribe((request) => setPendingConfirm(request));
   }, []);
@@ -56,7 +57,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
     const trimmed = text.trim();
     if (!trimmed || busy) return;
     setInput("");
-    setEntries((log) => appendUserEntry(log, trimmed));
+    setDisplayLog((log) => appendUserEntry(log, trimmed));
     setBusy(true);
 
     const state = stateRef.current!;
@@ -79,7 +80,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
           : error instanceof Error
             ? error.message
             : String(error);
-      setEntries((log) => appendSystemEntry(log, message));
+      setDisplayLog((log) => appendSystemEntry(log, message));
     } finally {
       setBusy(false);
     }
@@ -92,7 +93,10 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
 
   return (
     <Box flexDirection="column">
-      <MessageList entries={entries} />
+      <MessageList
+        staticEntries={displayLog.staticEntries}
+        pendingEntries={displayLog.pendingEntries}
+      />
       <TodoPanel todos={todos} />
       {pendingConfirm ? (
         <ConfirmModal
