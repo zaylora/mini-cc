@@ -6,7 +6,9 @@ import type {
 import type { State } from "@/core/state.js";
 import { persistToolResult, writeTranscript } from "@/context/persist.js";
 
-const MICRO_PLACEHOLDER = "[Earlier tool result compacted. Re-run if needed.]";
+const MICRO_MIN_LENGTH = 120;
+const MICRO_INPUT_PREVIEW = 120;
+const CHARACTERS_PER_TOKEN = 3;
 
 export interface ContextManager {
   manage(state: State): Promise<void>;
@@ -21,6 +23,7 @@ export interface ContextManagerOptions {
   toolResultBudget?: number;
   toolResultPreview?: number;
   toolResultPersistThreshold?: number;
+  microCompactThreshold?: number;
   compactThreshold?: number;
   reactiveTailMessages?: number;
   maxCompactFailures?: number;
@@ -32,12 +35,13 @@ export function createContextManager(
 ): ContextManager {
   const maxMessages = options.maxMessages ?? 50;
   const keepHeadMessages = options.keepHeadMessages ?? 3;
-  const keepRecentToolResults = options.keepRecentToolResults ?? 3;
+  const keepRecentToolResults = options.keepRecentToolResults ?? 25;
   const toolResultBudget = options.toolResultBudget ?? 200_000;
   const toolResultPreview = options.toolResultPreview ?? 2_000;
   const toolResultPersistThreshold =
     options.toolResultPersistThreshold ?? 30_000;
-  const compactThreshold = options.compactThreshold ?? 160_000;
+  const microCompactThreshold = options.microCompactThreshold ?? 90_000;
+  const compactThreshold = options.compactThreshold ?? 150_000;
   const reactiveTailMessages = options.reactiveTailMessages ?? 5;
   const maxCompactFailures = options.maxCompactFailures ?? 3;
 
@@ -56,10 +60,12 @@ export function createContextManager(
         maxMessages,
         keepHeadMessages,
       );
-      microCompact(state.messages, keepRecentToolResults);
+      if (contextTokens(state) > microCompactThreshold) {
+        microCompact(state.messages, keepRecentToolResults);
+      }
 
       if (
-        estimateSize(state.messages) <= compactThreshold ||
+        contextTokens(state) <= compactThreshold ||
         state.compactFailures >= maxCompactFailures
       ) {
         return;
@@ -169,12 +175,31 @@ function snipMessages(
 
 function microCompact(messages: MessageParam[], keepRecent: number): void {
   const results = collectToolResults(messages);
-  for (const result of results.slice(
-    0,
-    Math.max(0, results.length - keepRecent),
-  )) {
-    if (result.content.length > 120) result.block.content = MICRO_PLACEHOLDER;
+  const stale = results.slice(0, Math.max(0, results.length - keepRecent));
+  if (stale.length === 0) return;
+
+  const toolUses = collectToolUses(messages);
+  for (const result of stale) {
+    if (result.content.length <= MICRO_MIN_LENGTH) continue;
+    const use = toolUses.get(result.block.tool_use_id);
+    const placeholder = microPlaceholder(use?.name, use?.input);
+    if (placeholder.length < result.content.length) {
+      result.block.content = placeholder;
+    }
   }
+}
+
+function microPlaceholder(
+  toolName: string | undefined,
+  input: unknown,
+): string {
+  if (toolName === undefined) return "[Compacted: earlier tool result omitted.]";
+  const serialized = JSON.stringify(input ?? {});
+  const argument =
+    serialized.length > MICRO_INPUT_PREVIEW
+      ? `${serialized.slice(0, MICRO_INPUT_PREVIEW)}…`
+      : serialized;
+  return `[Compacted: ${toolName} ${argument} — already executed, output omitted here.]`;
 }
 
 async function compactHistory(
@@ -204,6 +229,21 @@ function collectToolResults(messages: MessageParam[]): Array<{
   return results;
 }
 
+function collectToolUses(
+  messages: MessageParam[],
+): Map<string, { name: string; input: unknown }> {
+  const uses = new Map<string, { name: string; input: unknown }>();
+  for (const message of messages) {
+    if (message.role !== "assistant" || typeof message.content === "string")
+      continue;
+    for (const block of message.content) {
+      if (block.type !== "tool_use") continue;
+      uses.set(block.id, { name: block.name, input: block.input });
+    }
+  }
+  return uses;
+}
+
 function hasToolUse(message: MessageParam | undefined): boolean {
   return (
     message?.role === "assistant" &&
@@ -226,6 +266,11 @@ function textContent(content: ToolResultBlockParam["content"]): string {
   return content
     .map((block) => (block.type === "text" ? block.text : "[image]"))
     .join("\n");
+}
+
+function contextTokens(state: State): number {
+  if (state.lastInputTokens > 0) return state.lastInputTokens;
+  return Math.ceil(estimateSize(state.messages) / CHARACTERS_PER_TOKEN);
 }
 
 function estimateSize(messages: MessageParam[]): number {

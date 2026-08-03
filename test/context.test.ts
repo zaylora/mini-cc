@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import type {
+  MessageParam,
+  ToolResultBlockParam,
+} from "@anthropic-ai/sdk/resources/messages/messages";
 import { createContextManager } from "@/context/manager.js";
 import { createState } from "@/core/state.js";
 
@@ -34,6 +37,7 @@ describe("ContextManager", () => {
       toolResultPersistThreshold: 100,
       keepRecentToolResults: 1,
       maxMessages: 50,
+      microCompactThreshold: 1,
       compactThreshold: Number.POSITIVE_INFINITY,
     });
 
@@ -43,7 +47,7 @@ describe("ContextManager", () => {
     expect(persisted).toHaveLength(1);
     expect(await readFile(join(root, ".task_outputs", "tool-results", persisted[0]!), "utf8"))
       .toContain("新");
-    expect(JSON.stringify(state.messages[1])).toContain("Earlier tool result compacted");
+    expect(JSON.stringify(state.messages[1])).toContain("Compacted");
     expect(JSON.stringify(state.messages[3])).toContain("persisted-output");
   });
 
@@ -123,6 +127,71 @@ describe("ContextManager", () => {
     expect(JSON.stringify(state.messages)).toContain("recent-tool");
     expect(JSON.stringify(state.messages)).toContain("recent-result");
   });
+
+  test("micro 占位符保留工具名与参数，且不诱导重跑", async () => {
+    const state = createState();
+    state.messages.push(
+      assistantToolUse("old-tool"),
+      toolResult("old-tool", "旧".repeat(200)),
+      assistantToolUse("new-tool"),
+      toolResult("new-tool", "新".repeat(200)),
+    );
+    const manager = createContextManager({
+      keepRecentToolResults: 1,
+      toolResultBudget: Number.POSITIVE_INFINITY,
+      compactThreshold: Number.POSITIVE_INFINITY,
+      microCompactThreshold: 1,
+    });
+
+    await manager.manage(state);
+
+    const placeholder = toolResultText(state.messages[1]!);
+    expect(placeholder).toContain("read_file");
+    expect(placeholder).toContain("old-tool");
+    expect(placeholder).not.toContain("Re-run");
+    expect(placeholder).not.toContain("旧");
+  });
+
+  test("上下文未达 micro 门槛时保留工具结果原文", async () => {
+    const state = createState();
+    state.messages.push(
+      assistantToolUse("old-tool"),
+      toolResult("old-tool", "旧".repeat(200)),
+      assistantToolUse("new-tool"),
+      toolResult("new-tool", "新".repeat(200)),
+    );
+    const manager = createContextManager({
+      keepRecentToolResults: 1,
+      toolResultBudget: Number.POSITIVE_INFINITY,
+      compactThreshold: Number.POSITIVE_INFINITY,
+      microCompactThreshold: Number.POSITIVE_INFINITY,
+    });
+
+    await manager.manage(state);
+
+    expect(toolResultText(state.messages[1]!)).toContain("旧");
+  });
+
+  test("字符数很小但真实 token 已超阈值时仍触发 LLM 摘要", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mini-agent-token-"));
+    directories.push(root);
+    const state = createState();
+    state.messages.push({ role: "user", content: "很短的一条消息" });
+    state.lastInputTokens = 180_000;
+    let summarized = false;
+    const manager = createContextManager({
+      root,
+      compactThreshold: 150_000,
+      summarize: async () => {
+        summarized = true;
+        return "目标与剩余工作";
+      },
+    });
+
+    await manager.manage(state);
+
+    expect(summarized).toBe(true);
+  });
 });
 
 function assistantToolUse(id: string): MessageParam {
@@ -137,4 +206,9 @@ function toolResult(id: string, content: string): MessageParam {
     role: "user",
     content: [{ type: "tool_result", tool_use_id: id, content }],
   };
+}
+
+function toolResultText(message: MessageParam): string {
+  const blocks = message.content as ToolResultBlockParam[];
+  return String(blocks[0]!.content);
 }

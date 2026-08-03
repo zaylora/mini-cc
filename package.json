@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "bin": {
-    "mini-agent": "dist/cli/main.js"--
+    "mini-agent": "dist/cli/main.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

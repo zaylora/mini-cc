@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-export const MAX_TOKENS = 4096;
+export const MAX_TOKENS = 16_000;
 export const MAX_STEPS = 90;
 
 export function getModelId(): string {

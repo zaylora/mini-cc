@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@anthropic-ai/sdk/resources/messages/messages";
+import { MAX_TOKENS } from "@/config.js";
 import { createState } from "@/core/state.js";
 import { callModelWithRecovery } from "@/core/llm.js";
 
@@ -21,7 +22,7 @@ describe("callModelWithRecovery", () => {
       sleep: async () => {},
     });
 
-    expect(seenMaxTokens).toEqual([4096, 64000]);
+    expect(seenMaxTokens).toEqual([MAX_TOKENS, 64000]);
     expect(state.messages).toHaveLength(0);
     expect(JSON.stringify(result.content)).toContain("完整内容");
     expect(state.maxTokens).toBe(64000);
@@ -94,9 +95,27 @@ describe("callModelWithRecovery", () => {
     expect(compactions).toBe(1);
     expect(state.hasAttemptedReactiveCompact).toBe(true);
   });
+
+  test("记录 API 返回的真实 input token 数", async () => {
+    const state = createState();
+    const request = async () => response("end_turn", "完成", 12_345);
+
+    await callModelWithRecovery(state, {
+      system: "system",
+      tools: [],
+      request,
+      sleep: async () => {},
+    });
+
+    expect(state.lastInputTokens).toBe(12_345);
+  });
 });
 
-function response(stopReason: Message["stop_reason"], text: string): Message {
+function response(
+  stopReason: Message["stop_reason"],
+  text: string,
+  inputTokens = 1,
+): Message {
   return {
     id: "message-test",
     type: "message",
@@ -106,7 +125,7 @@ function response(stopReason: Message["stop_reason"], text: string): Message {
     stop_reason: stopReason,
     stop_sequence: null,
     usage: {
-      input_tokens: 1,
+      input_tokens: inputTokens,
       output_tokens: 1,
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,

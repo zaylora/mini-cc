@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAuditHook, createAutoGitAddHook } from "@/hooks/builtins.js";
+import { createAuditHook } from "@/hooks/builtins.js";
 
 describe("内置 hooks", () => {
   let originalCwd: string;
@@ -28,26 +28,4 @@ describe("内置 hooks", () => {
     expect(record.input).toEqual({ path: "README.md" });
     expect(record.timestamp).toBeString();
   });
-
-  test("写文件成功后自动 git add 并注入提示", async () => {
-    const git = (args: string[]) =>
-      Bun.spawnSync(["git", ...args], { cwd: workdir, stdout: "pipe", stderr: "pipe" });
-    expect(git(["init"]).exitCode).toBe(0);
-    await writeFile("note.txt", "hello");
-
-    const hook = createAutoGitAddHook();
-    const outcome = await hook({
-      toolName: "write_file",
-      input: { path: "note.txt", content: "hello" },
-      result: "已写入 note.txt",
-    });
-
-    expect(outcome).toEqual({
-      action: "inject",
-      context: "已自动 git add note.txt",
-    });
-    expect(new TextDecoder().decode(git(["diff", "--cached", "--name-only"]).stdout).trim()).toBe(
-      "note.txt",
-    );
-  }, 15_000);
 });

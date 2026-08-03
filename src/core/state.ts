@@ -20,6 +20,7 @@ export interface State {
   memoryPath: string;
   modelId: string;
   maxTokens: number;
+  lastInputTokens: number;
   consecutive529: number;
   compactFailures: number;
   recoveryCount: number;
@@ -40,6 +41,7 @@ export function createState(depth = 0): State {
     memoryPath: join(workspace, ".memory", "MEMORY.md"),
     modelId: getModelId(),
     maxTokens: MAX_TOKENS,
+    lastInputTokens: 0,
     consecutive529: 0,
     compactFailures: 0,
     recoveryCount: 0,

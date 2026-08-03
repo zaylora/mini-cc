@@ -57,6 +57,7 @@ export async function callModelWithRecovery(
         maxTokens: state.maxTokens,
       });
       state.consecutive529 = 0;
+      state.lastInputTokens = response.usage.input_tokens;
 
       if (response.stop_reason !== "max_tokens") return response;
       if (!state.hasEscalatedMaxTokens) {
