@@ -36,6 +36,7 @@ export interface AgentSession {
   displayLog: DisplayLog;
   todos: Todo[];
   step: number;
+  inputTokens: number;
   busy: boolean;
   pendingConfirm?: ConfirmRequest;
   submit: (text: string) => Promise<void>;
@@ -54,6 +55,7 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
   const [displayLog, setDisplayLog] = useState<DisplayLog>(createDisplayLog);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [step, setStep] = useState(0);
+  const [inputTokens, setInputTokens] = useState(0);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | undefined>();
 
@@ -147,6 +149,7 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
         clearInterval(throttleTimerRef.current);
         throttleTimerRef.current = undefined;
       }
+      setInputTokens(state.lastInputTokens);
       setBusy(false);
     }
   };
@@ -160,6 +163,7 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
     displayLog,
     todos,
     step,
+    inputTokens,
     busy,
     pendingConfirm,
     submit,

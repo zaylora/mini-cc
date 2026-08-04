@@ -22,6 +22,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
     displayLog,
     todos,
     step,
+    inputTokens,
     busy,
     pendingConfirm,
     submit,
@@ -50,7 +51,13 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
       ) : (
         <InputBox value={input} onChange={setInput} onSubmit={handleSubmit} disabled={busy} />
       )}
-      <StatusBar cwd={workingDirectory} model={getModelId()} step={step} busy={busy} />
+      <StatusBar
+        cwd={workingDirectory}
+        model={getModelId()}
+        step={step}
+        inputTokens={inputTokens}
+        busy={busy}
+      />
     </Box>
   );
 }

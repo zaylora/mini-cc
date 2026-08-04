@@ -31,6 +31,7 @@ test("提交问题后渲染用户输入与模型回复", async () => {
 
     expect(lastFrame()).toContain("你好");
     expect(lastFrame()).toContain("你好，我是助手");
+    expect(lastFrame()).toContain("context 1 / 200,000 tokens");
   } finally {
     restore();
     server.stop(true);

@@ -10,6 +10,7 @@ const LOW_CEILING_MODEL_PREFIXES = [
 ];
 const LOW_CEILING_MAX_TOKENS = 64_000;
 const DEFAULT_MAX_TOKENS = 128_000;
+export const CONTEXT_WINDOW_TOKENS = 200_000;
 
 export function maxOutputTokensFor(modelId: string): number {
   const isLowCeiling = LOW_CEILING_MODEL_PREFIXES.some((prefix) =>
