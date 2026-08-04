@@ -1,12 +1,12 @@
 import { Box, Static, Text } from "ink";
 import type { MarkdownBlock } from "@/markdown/blocks.js";
-import type { DisplayEntry } from "@/tui/displayLog.js";
-import { Markdown } from "@/tui/Markdown.js";
+import type { DisplayEntry } from "@/tui/model/displayLog.js";
+import { Markdown } from "@/tui/components/Markdown.js";
 import {
   describeToolCall,
   toolDotColor,
   toolLabel,
-} from "@/tui/toolCallFormat.js";
+} from "@/tui/model/toolCallFormat.js";
 
 export interface MessageListProps {
   staticEntries: DisplayEntry[];

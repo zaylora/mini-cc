@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { TodoPanel } from "@/tui/TodoPanel.js";
+import { TodoPanel } from "@/tui/components/TodoPanel.js";
 
 test("todos 为空时不渲染任何内容", () => {
   const { lastFrame } = render(<TodoPanel todos={[]} />);

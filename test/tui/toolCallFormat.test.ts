@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeToolCall, toolDotColor, toolLabel } from "@/tui/toolCallFormat.js";
+import { describeToolCall, toolDotColor, toolLabel } from "@/tui/model/toolCallFormat.js";
 
 test("toolLabel 映射已知工具并原样返回未知工具", () => {
   expect(toolLabel("bash")).toBe("Bash");

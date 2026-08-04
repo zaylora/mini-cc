@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createStreamBuffer, pushDelta, flush } from "@/tui/streamBuffer.js";
+import { createStreamBuffer, pushDelta, flush } from "@/tui/model/streamBuffer.js";
 
 test("单个完整段落一次性 delta 后立即视为尾块（未封闭，因为它是最后一块）", () => {
   const buffer = createStreamBuffer();

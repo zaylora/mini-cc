@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { displayWidth } from "@/markdown/width.js";
-import { Markdown } from "@/tui/Markdown.js";
+import { Markdown } from "@/tui/components/Markdown.js";
 import type { MarkdownBlock } from "@/markdown/blocks.js";
 
 test("渲染标题", () => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { ConfirmRequest } from "@/tui/confirmBridge.js";
+import type { ConfirmRequest } from "@/tui/services/confirmBridge.js";
 
 export interface ConfirmModalProps {
   request: ConfirmRequest;

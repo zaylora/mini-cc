@@ -8,7 +8,7 @@ import {
   applyToolEnd,
   createDisplayLog,
   setStreamingBlocks,
-} from "@/tui/displayLog.js";
+} from "@/tui/model/displayLog.js";
 
 test("append* 依次追加到 staticEntries", () => {
   let log = appendUserEntry(createDisplayLog(), "你好");

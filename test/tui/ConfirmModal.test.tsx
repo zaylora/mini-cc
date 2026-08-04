@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { ConfirmModal } from "@/tui/ConfirmModal.js";
-import type { ConfirmRequest } from "@/tui/confirmBridge.js";
+import { ConfirmModal } from "@/tui/components/ConfirmModal.js";
+import type { ConfirmRequest } from "@/tui/services/confirmBridge.js";
 
 test("展示确认消息，按 y 触发 respond(true)", async () => {
   let resolved: boolean | undefined;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { MessageList } from "@/tui/MessageList.js";
-import type { DisplayEntry } from "@/tui/displayLog.js";
+import { MessageList } from "@/tui/components/MessageList.js";
+import type { DisplayEntry } from "@/tui/model/displayLog.js";
 
 test("渲染用户、助手、系统条目", () => {
   const staticEntries: DisplayEntry[] = [

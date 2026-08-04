@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createConfirmBridge } from "@/tui/confirmBridge.js";
+import { createConfirmBridge } from "@/tui/services/confirmBridge.js";
 
 test("subscribe 的监听者收到 confirm 请求，respond 后 confirm 的 Promise 相应 resolve", async () => {
   const bridge = createConfirmBridge();

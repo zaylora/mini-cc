@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { StatusBar } from "@/tui/StatusBar.js";
+import { StatusBar } from "@/tui/components/StatusBar.js";
 
 test("展示工作目录、模型与步数", () => {
   const { lastFrame } = render(

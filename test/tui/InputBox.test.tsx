@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { InputBox } from "@/tui/InputBox.js";
+import { InputBox } from "@/tui/components/InputBox.js";
 
 test("禁用时展示提示文本而不接收输入", () => {
   const { lastFrame } = render(
