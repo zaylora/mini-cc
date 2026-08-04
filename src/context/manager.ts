@@ -4,11 +4,18 @@ import type {
   ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { State } from "@/core/state.js";
-import { persistToolResult, writeTranscript } from "@/context/persist.js";
+import {
+  persistedOutputPath,
+  persistedOutputReference,
+  persistToolResult,
+  writeTranscript,
+} from "@/context/persist.js";
 
 const MICRO_MIN_LENGTH = 120;
 const MICRO_INPUT_PREVIEW = 120;
 const CHARACTERS_PER_TOKEN = 3;
+/** 落盘引用除预览外的固定开销（标签 + 相对路径）。 */
+const PERSIST_REFERENCE_OVERHEAD = 160;
 
 export interface ContextManager {
   manage(state: State): Promise<void>;
@@ -121,9 +128,15 @@ async function applyToolResultBudget(
   const ranked = [...results].sort(
     (left, right) => right.content.length - left.content.length,
   );
+  // 总量超限时，单条阈值不再拥有否决权：否则一堆"各自都不算大"的结果会让
+  // 预算彻底失效。剩下的唯一硬约束是落盘必须真的换来体积收益。
+  const minPersistLength = Math.max(
+    previewLength,
+    Math.min(persistThreshold, previewLength + PERSIST_REFERENCE_OVERHEAD),
+  );
   for (const result of ranked) {
     if (total <= maxCharacters) break;
-    if (result.content.length <= persistThreshold) continue;
+    if (result.content.length <= minPersistLength) continue;
     result.block.content = await persistToolResult(
       root,
       result.block.tool_use_id,
@@ -181,8 +194,12 @@ function microCompact(messages: MessageParam[], keepRecent: number): void {
   const toolUses = collectToolUses(messages);
   for (const result of stale) {
     if (result.content.length <= MICRO_MIN_LENGTH) continue;
+    // 已落盘的结果只丢预览、保住路径，否则恢复入口会被无声吞掉。
+    const persisted = persistedOutputPath(result.content);
     const use = toolUses.get(result.block.tool_use_id);
-    const placeholder = microPlaceholder(use?.name, use?.input);
+    const placeholder = persisted
+      ? persistedOutputReference(persisted)
+      : microPlaceholder(use?.name, use?.input);
     if (placeholder.length < result.content.length) {
       result.block.content = placeholder;
     }

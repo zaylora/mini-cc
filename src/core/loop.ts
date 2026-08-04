@@ -77,6 +77,10 @@ export async function agentLoop(
           ? () => options.events?.emit("assistant-flush", { depth: state.depth })
           : undefined,
     });
+    options.events?.emit("context-usage", {
+      inputTokens: state.lastInputTokens,
+      depth: state.depth,
+    });
     state.messages.push({ role: "assistant", content: response.content });
     const assistantText = response.content
       .filter((block) => block.type === "text")

@@ -2,6 +2,8 @@ export interface ModelTurn {
   deltas: string[];
   stopReason: "end_turn" | "tool_use";
   toolUse?: { id: string; name: string; input: unknown };
+  inputTokens?: number;
+  waitFor?: Promise<void>;
 }
 
 export function createStreamingModelServer(
@@ -14,6 +16,7 @@ export function createStreamingModelServer(
       await request.json();
       const turn = turns[index] ?? turns.at(-1)!;
       index += 1;
+      await turn.waitFor;
       const events: string[] = [
         `event: message_start\ndata: ${JSON.stringify({
           type: "message_start",
@@ -25,7 +28,7 @@ export function createStreamingModelServer(
             content: [],
             stop_reason: null,
             stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 0 },
+            usage: { input_tokens: turn.inputTokens ?? 1, output_tokens: 0 },
           },
         })}\n\n`,
       ];

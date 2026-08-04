@@ -62,6 +62,52 @@ test("提交问题后记录用户输入和模型回复", async () => {
   }
 });
 
+test("多步任务在每次模型响应后立即刷新 input token", async () => {
+  let releaseSecondTurn = (): void => {};
+  const waitForSecondTurn = new Promise<void>((resolve) => {
+    releaseSecondTurn = resolve;
+  });
+  const server = createStreamingModelServer([
+    {
+      deltas: [],
+      stopReason: "tool_use",
+      toolUse: {
+        id: "todo-1",
+        name: "todo_write",
+        input: { todos: [{ content: "继续执行", status: "in_progress" }] },
+      },
+      inputTokens: 123,
+    },
+    {
+      deltas: ["执行完成"],
+      stopReason: "end_turn",
+      inputTokens: 456,
+      waitFor: waitForSecondTurn,
+    },
+  ]);
+  const restore = useTestModel(server.url.origin);
+  const view = render(<SessionHarness hooks={new HookBus()} />);
+
+  try {
+    await flush();
+    const submission = latestSession!.submit("执行多步任务");
+    await waitFor(() => latestSession?.step === 2);
+
+    expect(latestSession!.busy).toBe(true);
+    expect(latestSession!.inputTokens).toBe(123);
+
+    releaseSecondTurn();
+    await submission;
+    await flush(50);
+    expect(latestSession!.inputTokens).toBe(456);
+  } finally {
+    releaseSecondTurn();
+    view.unmount();
+    restore();
+    server.stop(true);
+  }
+});
+
 test("确认请求获准后继续执行并清空 pendingConfirm", async () => {
   const command = process.platform === "win32" ? "Write-Output ok" : "printf ok";
   const server = createStreamingModelServer([

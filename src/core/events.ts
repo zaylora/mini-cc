@@ -5,6 +5,7 @@ export interface AgentEventMap {
   "assistant-message": { text: string; depth: number };
   "assistant-delta": { text: string; depth: number };
   "assistant-flush": { depth: number };
+  "context-usage": { inputTokens: number; depth: number };
   "stream-interrupted": { reason: string; depth: number };
   "tool-start": {
     id: string;

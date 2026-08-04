@@ -71,6 +71,9 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
   useEffect(() => {
     const events = eventsRef.current;
     events.on("step-start", ({ step: nextStep }) => setStep(nextStep));
+    events.on("context-usage", ({ inputTokens: nextInputTokens, depth }) => {
+      if (depth === 0) setInputTokens(nextInputTokens);
+    });
     events.on("assistant-message", ({ text, depth }) =>
       setDisplayLog((log) => appendAssistantMessage(log, { text, depth })),
     );
@@ -149,7 +152,6 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
         clearInterval(throttleTimerRef.current);
         throttleTimerRef.current = undefined;
       }
-      setInputTokens(state.lastInputTokens);
       setBusy(false);
     }
   };

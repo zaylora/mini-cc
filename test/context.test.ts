@@ -172,6 +172,106 @@ describe("ContextManager", () => {
     expect(toolResultText(state.messages[1]!)).toContain("旧");
   });
 
+  test("micro 压缩保留落盘引用的恢复路径", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mini-agent-persist-micro-"));
+    directories.push(root);
+    const state = createState();
+    state.messages.push(
+      assistantToolUse("big-one"),
+      toolResult("big-one", "X".repeat(500)),
+    );
+    await createContextManager({
+      root,
+      toolResultBudget: 100,
+      toolResultPreview: 12,
+      toolResultPersistThreshold: 100,
+      microCompactThreshold: Number.POSITIVE_INFINITY,
+      compactThreshold: Number.POSITIVE_INFINITY,
+    }).manage(state);
+    const persistedPath = /path="([^"]+)"/.exec(
+      toolResultText(state.messages[1]!),
+    )?.[1];
+    expect(persistedPath).toBeDefined();
+
+    state.messages.push(
+      assistantToolUse("later-one"),
+      toolResult("later-one", "Y".repeat(500)),
+    );
+    await createContextManager({
+      root,
+      toolResultBudget: Number.POSITIVE_INFINITY,
+      keepRecentToolResults: 1,
+      microCompactThreshold: 1,
+      compactThreshold: Number.POSITIVE_INFINITY,
+    }).manage(state);
+
+    const compacted = toolResultText(state.messages[1]!);
+    expect(compacted).toContain(persistedPath!);
+    expect(compacted).not.toContain("XXX");
+    expect(compacted.length).toBeLessThan(500);
+  });
+
+  test("多条中等结果累加超预算时按大小依次落盘", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mini-agent-budget-sum-"));
+    directories.push(root);
+    const state = createState();
+    const blocks: ToolResultBlockParam[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      state.messages.push(assistantToolUse(`tool-${index}`));
+      blocks.push({
+        type: "tool_result",
+        tool_use_id: `tool-${index}`,
+        content: "M".repeat(1_000),
+      });
+    }
+    state.messages.push({ role: "user", content: blocks });
+
+    await createContextManager({
+      root,
+      toolResultBudget: 3_000,
+      toolResultPreview: 40,
+      toolResultPersistThreshold: 100_000,
+      microCompactThreshold: Number.POSITIVE_INFINITY,
+      compactThreshold: Number.POSITIVE_INFINITY,
+    }).manage(state);
+
+    const persisted = await readdir(join(root, ".task_outputs", "tool-results"));
+    expect(persisted.length).toBeGreaterThan(0);
+    const total = blocks.reduce(
+      (sum, block) => sum + String(block.content).length,
+      0,
+    );
+    expect(total).toBeLessThanOrEqual(3_000);
+  });
+
+  test("落盘换不来体积收益时不写文件", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mini-agent-budget-noop-"));
+    directories.push(root);
+    const state = createState();
+    state.messages.push(
+      assistantToolUse("tiny-a"),
+      assistantToolUse("tiny-b"),
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tiny-a", content: "a".repeat(60) },
+          { type: "tool_result", tool_use_id: "tiny-b", content: "b".repeat(60) },
+        ],
+      },
+    );
+
+    await createContextManager({
+      root,
+      toolResultBudget: 10,
+      toolResultPreview: 2_000,
+      toolResultPersistThreshold: 20,
+      microCompactThreshold: Number.POSITIVE_INFINITY,
+      compactThreshold: Number.POSITIVE_INFINITY,
+    }).manage(state);
+
+    expect(await readdir(root)).not.toContain(".task_outputs");
+  });
+
   test("字符数很小但真实 token 已超阈值时仍触发 LLM 摘要", async () => {
     const root = await mkdtemp(join(tmpdir(), "mini-agent-token-"));
     directories.push(root);
