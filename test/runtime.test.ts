@@ -169,16 +169,7 @@ function createModelServer(
       const usesTool = content.some(
         (block) => typeof block === "object" && block !== null && (block as { type?: string }).type === "tool_use",
       );
-      return Response.json({
-        id: `message-${index}`,
-        type: "message",
-        role: "assistant",
-        model: "test-model",
-        content,
-        stop_reason: usesTool ? "tool_use" : "end_turn",
-        stop_sequence: null,
-        usage: { input_tokens: 1, output_tokens: 1 },
-      });
+      return createSseResponse(content, index, usesTool ? "tool_use" : "end_turn");
     },
   });
 }
@@ -198,4 +189,87 @@ function useTestModel(baseUrl: string): () => void {
 function restoreEnvironment(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
+}
+
+function createSseResponse(
+  content: unknown[],
+  index: number,
+  stopReason: "end_turn" | "tool_use",
+): Response {
+  const events: string[] = [
+    `event: message_start\ndata: ${JSON.stringify({
+      type: "message_start",
+      message: {
+        id: `message-${index}`,
+        type: "message",
+        role: "assistant",
+        model: "test-model",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    })}\n\n`,
+  ];
+
+  content.forEach((rawBlock, blockIndex) => {
+    const block = rawBlock as {
+      type: "text" | "tool_use";
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: unknown;
+    };
+    if (block.type === "tool_use") {
+      events.push(
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: blockIndex,
+          content_block: {
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: {},
+          },
+        })}\n\n`,
+        `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: blockIndex,
+          delta: { type: "input_json_delta", partial_json: JSON.stringify(block.input ?? {}) },
+        })}\n\n`,
+      );
+    } else {
+      events.push(
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: blockIndex,
+          content_block: { type: "text", text: "" },
+        })}\n\n`,
+        `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: blockIndex,
+          delta: { type: "text_delta", text: block.text ?? "" },
+        })}\n\n`,
+      );
+    }
+    events.push(
+      `event: content_block_stop\ndata: ${JSON.stringify({
+        type: "content_block_stop",
+        index: blockIndex,
+      })}\n\n`,
+    );
+  });
+
+  events.push(
+    `event: message_delta\ndata: ${JSON.stringify({
+      type: "message_delta",
+      delta: { stop_reason: stopReason, stop_sequence: null },
+      usage: { output_tokens: 1 },
+    })}\n\n`,
+    `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+  );
+
+  return new Response(events.join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
 }

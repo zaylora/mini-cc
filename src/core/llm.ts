@@ -5,12 +5,12 @@ import type {
   Tool,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import { getAnthropicClientOptions } from "@/config.js";
+import { maxOutputTokensFor } from "@/core/modelLimits.js";
 import type { State } from "@/core/state.js";
 
 let client: Anthropic | undefined;
 let clientOptionsKey: string | undefined;
 
-const ESCALATED_MAX_TOKENS = 64_000;
 const MAX_TRANSIENT_RETRIES = 10;
 const MAX_CONTINUATIONS = 3;
 const CONTINUATION_PROMPT =
@@ -34,13 +34,16 @@ export interface ModelRecoveryOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
   maxRetries?: number;
+  onTextDelta?: (text: string) => void;
+  onStreamFlush?: () => void;
 }
 
 export async function callModelWithRecovery(
   state: State,
   options: ModelRecoveryOptions,
 ): Promise<Message> {
-  const request = options.request ?? requestModel;
+  const request = options.request ?? ((modelRequest) =>
+    requestModel(modelRequest, options.onTextDelta, options.onStreamFlush));
   const sleep = options.sleep ?? defaultSleep;
   const random = options.random ?? Math.random;
   const maxRetries = options.maxRetries ?? MAX_TRANSIENT_RETRIES;
@@ -60,11 +63,6 @@ export async function callModelWithRecovery(
       state.lastInputTokens = response.usage.input_tokens;
 
       if (response.stop_reason !== "max_tokens") return response;
-      if (!state.hasEscalatedMaxTokens) {
-        state.maxTokens = ESCALATED_MAX_TOKENS;
-        state.hasEscalatedMaxTokens = true;
-        continue;
-      }
       if (state.recoveryCount >= MAX_CONTINUATIONS) return response;
 
       state.messages.push({ role: "assistant", content: response.content });
@@ -88,6 +86,7 @@ export async function callModelWithRecovery(
         state.consecutive529 += 1;
         if (state.consecutive529 >= 3 && options.fallbackModelId) {
           state.modelId = options.fallbackModelId;
+          state.maxTokens = maxOutputTokensFor(state.modelId);
         }
       } else {
         state.consecutive529 = 0;
@@ -128,7 +127,11 @@ export async function summarizeMessages(
   return summary;
 }
 
-async function requestModel(request: ModelRequest): Promise<Message> {
+async function requestModel(
+  request: ModelRequest,
+  onTextDelta?: (text: string) => void,
+  onStreamFlush?: () => void,
+): Promise<Message> {
   const clientOptions = getAnthropicClientOptions();
   const optionsKey = JSON.stringify(clientOptions);
   if (!client || clientOptionsKey !== optionsKey) {
@@ -136,13 +139,24 @@ async function requestModel(request: ModelRequest): Promise<Message> {
     clientOptionsKey = optionsKey;
   }
 
-  return client.messages.create({
-    model: request.modelId,
-    max_tokens: request.maxTokens,
-    system: request.system,
-    messages: request.messages,
-    tools: request.tools,
-  }, { maxRetries: 0 });
+  const stream = client.messages.stream(
+    {
+      model: request.modelId,
+      max_tokens: request.maxTokens,
+      system: request.system,
+      messages: request.messages,
+      tools: request.tools,
+    },
+    { maxRetries: 0 },
+  );
+
+  if (onTextDelta) {
+    stream.on("text", (delta) => onTextDelta(delta));
+  }
+
+  const message = await stream.finalMessage();
+  onStreamFlush?.();
+  return message;
 }
 
 function isPromptTooLongError(error: unknown): boolean {

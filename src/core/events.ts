@@ -3,6 +3,9 @@ import type { Todo } from "@/core/state.js";
 export interface AgentEventMap {
   "step-start": { step: number; depth: number };
   "assistant-message": { text: string; depth: number };
+  "assistant-delta": { text: string; depth: number };
+  "assistant-flush": { depth: number };
+  "stream-interrupted": { reason: string; depth: number };
   "tool-start": {
     id: string;
     toolName: string;

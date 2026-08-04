@@ -5,21 +5,30 @@ import { createAgentEvents } from "@/core/events.js";
 import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState, type State, type Todo } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
+import type { MarkdownBlock } from "@/markdown/blocks.js";
 import type { SkillRegistry } from "@/tools/skill.js";
 import { ConfirmModal } from "@/tui/ConfirmModal.js";
 import { createConfirmBridge, type ConfirmRequest } from "@/tui/confirmBridge.js";
 import {
+  appendAssistantBlocks,
   appendAssistantMessage,
   appendSystemEntry,
   appendToolStart,
   appendUserEntry,
   applyToolEnd,
   createDisplayLog,
+  setStreamingBlocks,
   type DisplayLog,
 } from "@/tui/displayLog.js";
 import { InputBox } from "@/tui/InputBox.js";
 import { MessageList } from "@/tui/MessageList.js";
 import { StatusBar } from "@/tui/StatusBar.js";
+import {
+  createStreamBuffer,
+  flush as flushStreamBuffer,
+  pushDelta,
+  type StreamBuffer,
+} from "@/tui/streamBuffer.js";
 import { TodoPanel } from "@/tui/TodoPanel.js";
 
 export interface AppProps {
@@ -33,6 +42,9 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
   if (!stateRef.current) stateRef.current = createState();
   const eventsRef = useRef(createAgentEvents());
   const confirmBridgeRef = useRef(createConfirmBridge());
+  const streamBufferRef = useRef<StreamBuffer>(createStreamBuffer());
+  const latestTailRef = useRef<MarkdownBlock[]>([]);
+  const throttleTimerRef = useRef<ReturnType<typeof setInterval> | undefined>();
 
   const [displayLog, setDisplayLog] = useState<DisplayLog>(createDisplayLog);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -41,12 +53,51 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
   const [input, setInput] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | undefined>();
 
+  const commitStreamBuffer = (): void => {
+    const { buffer, committed } = flushStreamBuffer(streamBufferRef.current);
+    streamBufferRef.current = buffer;
+    if (committed.length > 0) {
+      setDisplayLog((log) => appendAssistantBlocks(log, { blocks: committed, depth: 0 }));
+    }
+    setDisplayLog((log) => setStreamingBlocks(log, []));
+  };
+
   useEffect(() => {
     const events = eventsRef.current;
     events.on("step-start", ({ step: nextStep }) => setStep(nextStep));
     events.on("assistant-message", ({ text, depth }) =>
       setDisplayLog((log) => appendAssistantMessage(log, { text, depth })),
     );
+    events.on("assistant-delta", ({ text }) => {
+      const { buffer, committed, tail } = pushDelta(streamBufferRef.current, text);
+      streamBufferRef.current = buffer;
+      latestTailRef.current = tail;
+      if (committed.length > 0) {
+        setDisplayLog((log) => appendAssistantBlocks(log, { blocks: committed, depth: 0 }));
+      }
+      if (throttleTimerRef.current === undefined) {
+        throttleTimerRef.current = setInterval(() => {
+          setDisplayLog((log) => setStreamingBlocks(log, latestTailRef.current));
+        }, 32);
+      }
+    });
+    events.on("assistant-flush", () => {
+      if (throttleTimerRef.current !== undefined) {
+        clearInterval(throttleTimerRef.current);
+        throttleTimerRef.current = undefined;
+      }
+      commitStreamBuffer();
+    });
+    events.on("stream-interrupted", ({ reason }) => {
+      if (throttleTimerRef.current !== undefined) {
+        clearInterval(throttleTimerRef.current);
+        throttleTimerRef.current = undefined;
+      }
+      commitStreamBuffer();
+      setDisplayLog((log) =>
+        appendSystemEntry(log, `连接中断（${reason}），正在重新生成…`),
+      );
+    });
     events.on("tool-start", (payload) => setDisplayLog((log) => appendToolStart(log, payload)));
     events.on("tool-end", (payload) => setDisplayLog((log) => applyToolEnd(log, payload)));
     events.on("todo-changed", ({ todos: nextTodos }) => setTodos(nextTodos));
@@ -82,6 +133,10 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
             : String(error);
       setDisplayLog((log) => appendSystemEntry(log, message));
     } finally {
+      if (throttleTimerRef.current !== undefined) {
+        clearInterval(throttleTimerRef.current);
+        throttleTimerRef.current = undefined;
+      }
       setBusy(false);
     }
   };
@@ -96,6 +151,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
       <MessageList
         staticEntries={displayLog.staticEntries}
         pendingEntries={displayLog.pendingEntries}
+        streamingBlocks={displayLog.streamingBlocks}
       />
       <TodoPanel todos={todos} />
       {pendingConfirm ? (

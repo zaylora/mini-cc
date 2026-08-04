@@ -1,6 +1,9 @@
+import { parseBlocks, type MarkdownBlock } from "@/markdown/blocks.js";
+
 export type DisplayEntry =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string; depth: number }
+  | { kind: "assistant-block"; id: string; block: MarkdownBlock; depth: number }
   | {
       kind: "tool";
       id: string;
@@ -15,10 +18,11 @@ export type DisplayEntry =
 export interface DisplayLog {
   staticEntries: DisplayEntry[];
   pendingEntries: DisplayEntry[];
+  streamingBlocks: MarkdownBlock[];
 }
 
 export function createDisplayLog(): DisplayLog {
-  return { staticEntries: [], pendingEntries: [] };
+  return { staticEntries: [], pendingEntries: [], streamingBlocks: [] };
 }
 
 let nextEntryId = 0;
@@ -45,13 +49,28 @@ export function appendAssistantMessage(
   log: DisplayLog,
   payload: { text: string; depth: number },
 ): DisplayLog {
+  const { blocks } = parseBlocks(payload.text, { closeAll: true });
+  return appendAssistantBlocks(log, { blocks, depth: payload.depth });
+}
+
+export function appendAssistantBlocks(
+  log: DisplayLog,
+  payload: { blocks: MarkdownBlock[]; depth: number },
+): DisplayLog {
+  const newEntries: DisplayEntry[] = payload.blocks.map((block) => ({
+    kind: "assistant-block",
+    id: nextId(),
+    block,
+    depth: payload.depth,
+  }));
   return {
     ...log,
-    staticEntries: [
-      ...log.staticEntries,
-      { kind: "assistant", id: nextId(), text: payload.text, depth: payload.depth },
-    ],
+    staticEntries: [...log.staticEntries, ...newEntries],
   };
+}
+
+export function setStreamingBlocks(log: DisplayLog, blocks: MarkdownBlock[]): DisplayLog {
+  return { ...log, streamingBlocks: blocks };
 }
 
 export function appendToolStart(
@@ -93,5 +112,6 @@ export function applyToolEnd(
       ...log.pendingEntries.slice(0, index),
       ...log.pendingEntries.slice(index + 1),
     ],
+    streamingBlocks: log.streamingBlocks,
   };
 }

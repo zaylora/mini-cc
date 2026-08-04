@@ -10,7 +10,7 @@ test("渲染用户、助手、系统条目", () => {
     { kind: "system", id: "e3", text: "已达到最大步数" },
   ];
   const frame = render(
-    <MessageList staticEntries={staticEntries} pendingEntries={[]} />,
+    <MessageList staticEntries={staticEntries} pendingEntries={[]} streamingBlocks={[]} />,
   ).lastFrame();
   expect(frame).toContain("你好");
   expect(frame).toContain("你好，我是助手");
@@ -22,7 +22,7 @@ test("子 Agent（depth > 0）的条目带缩进标记", () => {
     { kind: "assistant", id: "e1", text: "子任务结论", depth: 1 },
   ];
   const frame = render(
-    <MessageList staticEntries={staticEntries} pendingEntries={[]} />,
+    <MessageList staticEntries={staticEntries} pendingEntries={[]} streamingBlocks={[]} />,
   ).lastFrame();
   expect(frame).toContain("↳");
   expect(frame).toContain("子任务结论");
@@ -39,7 +39,7 @@ test("工具条目展示状态圆点和调用摘要，不展示状态词与原�
     },
   ];
   const runningFrame = render(
-    <MessageList staticEntries={[]} pendingEntries={running} />,
+    <MessageList staticEntries={[]} pendingEntries={running} streamingBlocks={[]} />,
   ).lastFrame();
   expect(runningFrame).toContain("● Bash(bun test)");
   expect(runningFrame).not.toContain("运行中");
@@ -56,7 +56,7 @@ test("工具条目展示状态圆点和调用摘要，不展示状态词与原�
     },
   ];
   const doneFrame = render(
-    <MessageList staticEntries={done} pendingEntries={[]} />,
+    <MessageList staticEntries={done} pendingEntries={[]} streamingBlocks={[]} />,
   ).lastFrame();
   expect(doneFrame).toContain("● Bash(bun test)");
   expect(doneFrame).not.toContain("完成");
@@ -74,7 +74,51 @@ test("子 Agent 工具条目保留缩进标记", () => {
     },
   ];
   const frame = render(
-    <MessageList staticEntries={[]} pendingEntries={entries} />,
+    <MessageList staticEntries={[]} pendingEntries={entries} streamingBlocks={[]} />,
   ).lastFrame();
   expect(frame).toContain("↳ ● Read(src/core/loop.ts)");
+});
+
+test("渲染 assistant-block 条目为对应的 markdown 样式", () => {
+  const staticEntries: DisplayEntry[] = [
+    {
+      kind: "assistant-block",
+      id: "e1",
+      depth: 0,
+      block: { kind: "heading", level: 1, spans: [{ kind: "text", text: "标题" }] },
+    },
+  ];
+  const frame = render(
+    <MessageList staticEntries={staticEntries} pendingEntries={[]} streamingBlocks={[]} />,
+  ).lastFrame();
+  expect(frame).toContain("标题");
+});
+
+test("streamingBlocks 在动态区渲染，不受 depth 缩进影响", () => {
+  const frame = render(
+    <MessageList
+      staticEntries={[]}
+      pendingEntries={[]}
+      streamingBlocks={[
+        { kind: "paragraph", spans: [{ kind: "text", text: "正在生成" }] },
+      ]}
+    />,
+  ).lastFrame();
+  expect(frame).toContain("正在生成");
+});
+
+test("子 Agent 的 assistant-block 带缩进标记", () => {
+  const staticEntries: DisplayEntry[] = [
+    {
+      kind: "assistant-block",
+      id: "e1",
+      depth: 1,
+      block: { kind: "paragraph", spans: [{ kind: "text", text: "子任务结论" }] },
+    },
+  ];
+  const frame = render(
+    <MessageList staticEntries={staticEntries} pendingEntries={[]} streamingBlocks={[]} />,
+  ).lastFrame();
+  expect(frame).toContain("↳");
+  expect(frame).toContain("子任务结论");
 });

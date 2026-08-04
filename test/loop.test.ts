@@ -30,16 +30,7 @@ test("agent loop 回灌工具结果并受步数上限保护", async () => {
           ]
         : [{ type: "text", text: "任务完成" }];
 
-      return Response.json({
-        id: `message-${requestNumber}`,
-        type: "message",
-        role: "assistant",
-        model: "test-model",
-        content,
-        stop_reason: shouldUseTool ? "tool_use" : "end_turn",
-        stop_sequence: null,
-        usage: { input_tokens: 1, output_tokens: 1 },
-      });
+      return createSseResponse(content, requestNumber);
     },
   });
   const previousApiKey = process.env.API_KEY;
@@ -167,16 +158,7 @@ function createModelServer(
       const usesTool = content.some(
         (block) => typeof block === "object" && block !== null && (block as { type?: string }).type === "tool_use",
       );
-      return Response.json({
-        id: `message-${index}`,
-        type: "message",
-        role: "assistant",
-        model: "test-model",
-        content,
-        stop_reason: usesTool ? "tool_use" : "end_turn",
-        stop_sequence: null,
-        usage: { input_tokens: 1, output_tokens: 1 },
-      });
+      return createSseResponse(content, index, usesTool ? "tool_use" : "end_turn");
     },
   });
 }
@@ -193,7 +175,7 @@ function useTestModel(baseUrl: string): () => void {
   };
 }
 
-test("events 依次触发 step-start/tool-start/tool-end/todo-changed/assistant-message", async () => {
+test("events 依次触发 step-start/tool-start/tool-end/todo-changed/assistant-delta", async () => {
   const requests: Array<{ messages: unknown[] }> = [];
   const server = createModelServer(requests, [
     [
@@ -216,9 +198,10 @@ test("events 依次触发 step-start/tool-start/tool-end/todo-changed/assistant-
   events.on("tool-end", ({ id, isError, depth }) =>
     seen.push(`tool-end:${id}:${isError}:${depth}`),
   );
-  events.on("assistant-message", ({ text, depth }) =>
-    seen.push(`assistant-message:${text}:${depth}`),
+  events.on("assistant-delta", ({ text, depth }) =>
+    seen.push(`assistant-delta:${text}:${depth}`),
   );
+  events.on("assistant-flush", ({ depth }) => seen.push(`assistant-flush:${depth}`));
   events.on("todo-changed", ({ todos, depth }) =>
     seen.push(`todo-changed:${todos.length}:${depth}`),
   );
@@ -230,14 +213,133 @@ test("events 依次触发 step-start/tool-start/tool-end/todo-changed/assistant-
 
     expect(seen).toEqual([
       "step-start:1:0",
+      "assistant-flush:0",
       "tool-start:todo-1:todo_write:0",
       "tool-end:todo-1:false:0",
       "todo-changed:1:0",
       "step-start:2:0",
-      "assistant-message:完成:0",
+      "assistant-delta:完成:0",
+      "assistant-flush:0",
     ]);
   } finally {
     restore();
     server.stop(true);
   }
 });
+
+test("depth 0 时流式 delta 桥接为 assistant-delta 事件，不重复触发 assistant-message", async () => {
+  const server = createModelServer([], [[{ type: "text", text: "任务完成" }]]);
+  const restore = useTestModel(server.url.origin);
+
+  try {
+    const state = createState();
+    state.messages.push({ role: "user", content: "执行测试" });
+    const events = createAgentEvents();
+    const deltas: string[] = [];
+    let flushCount = 0;
+    let assistantMessageCount = 0;
+    events.on("assistant-delta", ({ text }) => deltas.push(text));
+    events.on("assistant-flush", () => {
+      flushCount += 1;
+    });
+    events.on("assistant-message", () => {
+      assistantMessageCount += 1;
+    });
+
+    await agentLoop(state, { events });
+
+    expect(deltas.join("")).toBe("任务完成");
+    expect(flushCount).toBeGreaterThanOrEqual(1);
+    expect(assistantMessageCount).toBe(0);
+  } finally {
+    restore();
+    server.stop(true);
+  }
+});
+
+function createSseResponse(
+  content: unknown[],
+  index: number,
+  stopReason?: "end_turn" | "tool_use",
+): Response {
+  const usesTool = stopReason === "tool_use" || content.some(
+    (block) => typeof block === "object" && block !== null &&
+      (block as { type?: string }).type === "tool_use",
+  );
+  const events: string[] = [
+    `event: message_start\ndata: ${JSON.stringify({
+      type: "message_start",
+      message: {
+        id: `message-${index}`,
+        type: "message",
+        role: "assistant",
+        model: "test-model",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    })}\n\n`,
+  ];
+
+  content.forEach((rawBlock, blockIndex) => {
+    const block = rawBlock as {
+      type: "text" | "tool_use";
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: unknown;
+    };
+    if (block.type === "tool_use") {
+      events.push(
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: blockIndex,
+          content_block: {
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: {},
+          },
+        })}\n\n`,
+        `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: blockIndex,
+          delta: { type: "input_json_delta", partial_json: JSON.stringify(block.input ?? {}) },
+        })}\n\n`,
+      );
+    } else {
+      events.push(
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: blockIndex,
+          content_block: { type: "text", text: "" },
+        })}\n\n`,
+        `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: blockIndex,
+          delta: { type: "text_delta", text: block.text ?? "" },
+        })}\n\n`,
+      );
+    }
+    events.push(
+      `event: content_block_stop\ndata: ${JSON.stringify({
+        type: "content_block_stop",
+        index: blockIndex,
+      })}\n\n`,
+    );
+  });
+
+  events.push(
+    `event: message_delta\ndata: ${JSON.stringify({
+      type: "message_delta",
+      delta: { stop_reason: usesTool ? "tool_use" : "end_turn", stop_sequence: null },
+      usage: { output_tokens: 1 },
+    })}\n\n`,
+    `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+  );
+
+  return new Response(events.join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
+}

@@ -3,10 +3,11 @@ import type {
   ToolResultBlockParam,
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
-import { MAX_STEPS, MAX_TOKENS, getModelId } from "@/config.js";
+import { MAX_STEPS, getModelId } from "@/config.js";
 import { createContextManager } from "@/context/manager.js";
 import type { AgentEvents } from "@/core/events.js";
 import { callModelWithRecovery, summarizeMessages } from "@/core/llm.js";
+import { maxOutputTokensFor } from "@/core/modelLimits.js";
 import { createRuntimeTools } from "@/core/runtime.js";
 import type { State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
@@ -52,10 +53,9 @@ export async function agentLoop(
   state.enabledTools = runtime.definitions.map((tool) => tool.name);
   state.workspace = process.cwd();
   state.modelId = getModelId();
-  state.maxTokens = MAX_TOKENS;
+  state.maxTokens = maxOutputTokensFor(state.modelId);
   state.consecutive529 = 0;
   state.recoveryCount = 0;
-  state.hasEscalatedMaxTokens = false;
   state.hasAttemptedReactiveCompact = false;
 
   while (state.steps < maxSteps) {
@@ -68,13 +68,21 @@ export async function agentLoop(
       beforeRequest: (currentState) => contextManager.manage(currentState),
       reactiveCompact: (currentState) => contextManager.reactiveCompact(currentState),
       fallbackModelId: process.env.FALLBACK_MODEL_ID,
+      onTextDelta:
+        state.depth === 0
+          ? (text) => options.events?.emit("assistant-delta", { text, depth: state.depth })
+          : undefined,
+      onStreamFlush:
+        state.depth === 0
+          ? () => options.events?.emit("assistant-flush", { depth: state.depth })
+          : undefined,
     });
     state.messages.push({ role: "assistant", content: response.content });
     const assistantText = response.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
-    if (assistantText) {
+    if (assistantText && state.depth > 0) {
       options.events?.emit("assistant-message", {
         text: assistantText,
         depth: state.depth,
