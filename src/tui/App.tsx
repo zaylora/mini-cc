@@ -8,6 +8,7 @@ import { InputBox } from "@/tui/components/InputBox.js";
 import { MessageList } from "@/tui/components/MessageList.js";
 import { StatusBar } from "@/tui/components/StatusBar.js";
 import { TodoPanel } from "@/tui/components/TodoPanel.js";
+import { WelcomePanel } from "@/tui/components/WelcomePanel.js";
 import { useAgentSession } from "@/tui/hooks/useAgentSession.js";
 
 export interface AppProps {
@@ -28,6 +29,11 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
     submit,
     resolveConfirm,
   } = useAgentSession({ hooks, skills });
+  const model = getModelId();
+  const showWelcome =
+    displayLog.staticEntries.length === 0 &&
+    displayLog.pendingEntries.length === 0 &&
+    displayLog.streamingBlocks.length === 0;
 
   const handleSubmit = async (text: string): Promise<void> => {
     const trimmed = text.trim();
@@ -38,6 +44,9 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
 
   return (
     <Box flexDirection="column">
+      {showWelcome ? (
+        <WelcomePanel workingDirectory={workingDirectory} model={model} />
+      ) : null}
       <MessageList
         staticEntries={displayLog.staticEntries}
         pendingEntries={displayLog.pendingEntries}
@@ -53,7 +62,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
       )}
       <StatusBar
         cwd={workingDirectory}
-        model={getModelId()}
+        model={model}
         step={step}
         inputTokens={inputTokens}
         busy={busy}

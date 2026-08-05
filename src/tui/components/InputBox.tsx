@@ -9,18 +9,26 @@ export interface InputBoxProps {
 }
 
 export function InputBox({ value, onChange, onSubmit, disabled }: InputBoxProps): JSX.Element {
-  if (disabled) {
-    return (
-      <Box>
-        <Text dimColor>请稍候…</Text>
-      </Box>
-    );
-  }
-
   return (
-    <Box>
-      <Text>{"> "}</Text>
-      <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
+    <Box
+      borderStyle="single"
+      borderLeft={false}
+      borderRight={false}
+      paddingX={1}
+    >
+      {disabled ? (
+        <Text dimColor>请稍候…</Text>
+      ) : (
+        <>
+          <Text color="#e38c8f">{"> "}</Text>
+          <TextInput
+            value={value}
+            placeholder="输入任务..."
+            onChange={onChange}
+            onSubmit={onSubmit}
+          />
+        </>
+      )}
     </Box>
   );
 }

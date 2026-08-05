@@ -18,6 +18,8 @@ test("启用时输入字符会触发 onChange", async () => {
   const { stdin, lastFrame } = render(<Harness />);
   await Bun.sleep(10);
 
+  expect(lastFrame()).toContain("输入任务");
+
   stdin.write("hi");
   await Bun.sleep(0);
 

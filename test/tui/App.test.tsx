@@ -12,6 +12,16 @@ import {
 
 const emptySkills: SkillRegistry = new Map();
 
+test("空会话显示欢迎面板", async () => {
+  const { lastFrame } = render(
+    <App workingDirectory="/tmp" hooks={new HookBus()} skills={emptySkills} />,
+  );
+  await flush();
+
+  expect(lastFrame()).toContain("欢迎使用 mini-cc");
+  expect(lastFrame()).toContain("暂无活动");
+});
+
 test("提交问题后渲染用户输入与模型回复", async () => {
   const server = createStreamingModelServer([
     { deltas: ["你好，我是助手"], stopReason: "end_turn" },
@@ -32,6 +42,7 @@ test("提交问题后渲染用户输入与模型回复", async () => {
     expect(lastFrame()).toContain("你好");
     expect(lastFrame()).toContain("你好，我是助手");
     expect(lastFrame()).toContain("context 1 / 200,000 tokens");
+    expect(lastFrame()).not.toContain("欢迎使用 mini-cc");
   } finally {
     restore();
     server.stop(true);
