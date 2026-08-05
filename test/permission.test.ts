@@ -29,7 +29,8 @@ describe("权限 hook", () => {
 
   describe("Windows / PowerShell", () => {
     test("Remove-Item 删除文件需要用户确认", async () => {
-      const command = 'Remove-Item -Path ".mini-agent-audit.jsonl" -Force';
+      const command =
+        'Remove-Item -Path ".minicc\\mini-agent-audit.jsonl" -Force';
       expect(
         await onWindows({ toolName: "bash", input: { command } }),
       ).toEqual({
@@ -75,7 +76,9 @@ describe("权限 hook", () => {
       expect(
         await onWindows({
           toolName: "bash",
-          input: { command: 'Get-ChildItem -Path ".transcripts\\*" -Force' },
+          input: {
+            command: 'Get-ChildItem -Path ".minicc\\transcripts\\*" -Force',
+          },
         }),
       ).toEqual({ action: "continue" });
     });

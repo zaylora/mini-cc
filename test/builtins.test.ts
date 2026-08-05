@@ -28,4 +28,14 @@ describe("内置 hooks", () => {
     expect(record.input).toEqual({ path: "README.md" });
     expect(record.timestamp).toBeString();
   });
+
+  test("默认将审计日志写入 .minicc 目录", async () => {
+    const hook = createAuditHook();
+    await hook({ toolName: "read_file", input: { path: "README.md" } });
+
+    const record = JSON.parse(
+      await readFile(join(".minicc", "mini-agent-audit.jsonl"), "utf8"),
+    );
+    expect(record.toolName).toBe("read_file");
+  });
 });

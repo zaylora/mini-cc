@@ -43,10 +43,16 @@ describe("ContextManager", () => {
 
     await manager.manage(state);
 
-    const persisted = await readdir(join(root, ".task_outputs", "tool-results"));
+    const persisted = await readdir(
+      join(root, ".minicc", "task_outputs", "tool-results"),
+    );
     expect(persisted).toHaveLength(1);
-    expect(await readFile(join(root, ".task_outputs", "tool-results", persisted[0]!), "utf8"))
-      .toContain("新");
+    expect(
+      await readFile(
+        join(root, ".minicc", "task_outputs", "tool-results", persisted[0]!),
+        "utf8",
+      ),
+    ).toContain("新");
     expect(JSON.stringify(state.messages[1])).toContain("Compacted");
     expect(JSON.stringify(state.messages[3])).toContain("persisted-output");
   });
@@ -101,10 +107,12 @@ describe("ContextManager", () => {
     expect(state.messages).toEqual([
       { role: "user", content: "[Compacted]\n\n目标、发现和剩余工作" },
     ]);
-    expect(await readdir(join(root, ".transcripts"))).toHaveLength(1);
+    expect(await readdir(join(root, ".minicc", "transcripts"))).toHaveLength(1);
   });
 
   test("reactiveCompact 保留最近的完整工具调用对", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mini-agent-reactive-"));
+    directories.push(root);
     const state = createState();
     state.messages.push(
       { role: "user", content: "old" },
@@ -114,6 +122,7 @@ describe("ContextManager", () => {
       { role: "assistant", content: "recent-answer" },
     );
     const manager = createContextManager({
+      root,
       reactiveTailMessages: 2,
       summarize: async () => "较早历史摘要",
     });
@@ -235,7 +244,9 @@ describe("ContextManager", () => {
       compactThreshold: Number.POSITIVE_INFINITY,
     }).manage(state);
 
-    const persisted = await readdir(join(root, ".task_outputs", "tool-results"));
+    const persisted = await readdir(
+      join(root, ".minicc", "task_outputs", "tool-results"),
+    );
     expect(persisted.length).toBeGreaterThan(0);
     const total = blocks.reduce(
       (sum, block) => sum + String(block.content).length,
@@ -269,7 +280,7 @@ describe("ContextManager", () => {
       compactThreshold: Number.POSITIVE_INFINITY,
     }).manage(state);
 
-    expect(await readdir(root)).not.toContain(".task_outputs");
+    expect(await readdir(root)).not.toContain(".minicc");
   });
 
   test("字符数很小但真实 token 已超阈值时仍触发 LLM 摘要", async () => {

@@ -10,7 +10,7 @@ export async function persistToolResult(
   content: string,
   previewLength: number,
 ): Promise<string> {
-  const directory = join(root, ".task_outputs", "tool-results");
+  const directory = join(root, ".minicc", "task_outputs", "tool-results");
   await mkdir(directory, { recursive: true });
   const path = join(directory, `${uniqueName()}-${safeName(toolUseId)}.txt`);
   await writeFile(path, content, "utf8");
@@ -34,7 +34,7 @@ export async function writeTranscript(
   root: string,
   messages: MessageParam[],
 ): Promise<string> {
-  const directory = join(root, ".transcripts");
+  const directory = join(root, ".minicc", "transcripts");
   await mkdir(directory, { recursive: true });
   const path = join(directory, `${uniqueName()}.jsonl`);
   const content = messages.map((message) => JSON.stringify(message)).join("\n");
