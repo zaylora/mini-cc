@@ -109,7 +109,9 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
     });
     events.on("tool-start", (payload) => setDisplayLog((log) => appendToolStart(log, payload)));
     events.on("tool-end", (payload) => setDisplayLog((log) => applyToolEnd(log, payload)));
-    events.on("todo-changed", ({ todos: nextTodos }) => setTodos(nextTodos));
+    events.on("todo-changed", ({ todos: nextTodos, depth }) => {
+      if (depth === 0) setTodos(nextTodos);
+    });
     confirmBridgeRef.current.subscribe((request) => setPendingConfirm(request));
 
     return () => {
@@ -152,6 +154,7 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
         clearInterval(throttleTimerRef.current);
         throttleTimerRef.current = undefined;
       }
+      commitStreamBuffer();
       setBusy(false);
     }
   };

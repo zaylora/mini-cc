@@ -36,6 +36,7 @@ export interface ModelRecoveryOptions {
   maxRetries?: number;
   onTextDelta?: (text: string) => void;
   onStreamFlush?: () => void;
+  onStreamInterrupted?: (reason: string) => void;
 }
 
 export async function callModelWithRecovery(
@@ -82,6 +83,7 @@ export async function callModelWithRecovery(
       }
       if (!isTransientError(error) || transientRetries >= maxRetries) throw error;
 
+      options.onStreamInterrupted?.(errorMessage(error));
       if (statusOf(error) === 529) {
         state.consecutive529 += 1;
         if (state.consecutive529 >= 3 && options.fallbackModelId) {
@@ -154,9 +156,15 @@ async function requestModel(
     stream.on("text", (delta) => onTextDelta(delta));
   }
 
-  const message = await stream.finalMessage();
-  onStreamFlush?.();
-  return message;
+  try {
+    return await stream.finalMessage();
+  } finally {
+    onStreamFlush?.();
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isPromptTooLongError(error: unknown): boolean {

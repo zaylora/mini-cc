@@ -19,10 +19,13 @@ export function MessageList({
   pendingEntries,
   streamingBlocks,
 }: MessageListProps): JSX.Element {
+  const activeTools = pendingEntries.filter(
+    (entry): entry is ToolEntry => entry.kind === "tool" && entry.result === undefined,
+  );
   return (
     <Box flexDirection="column">
       <Static items={staticEntries}>{(entry) => renderEntry(entry)}</Static>
-      {pendingEntries.map((entry) => renderEntry(entry))}
+      {activeTools.map((entry) => renderEntry(entry))}
       {streamingBlocks.length > 0 ? <Markdown blocks={streamingBlocks} /> : null}
     </Box>
   );

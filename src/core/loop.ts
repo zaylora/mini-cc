@@ -76,6 +76,13 @@ export async function agentLoop(
         state.depth === 0
           ? () => options.events?.emit("assistant-flush", { depth: state.depth })
           : undefined,
+      onStreamInterrupted:
+        state.depth === 0
+          ? (reason) => options.events?.emit("stream-interrupted", {
+            reason,
+            depth: state.depth,
+          })
+          : undefined,
     });
     options.events?.emit("context-usage", {
       inputTokens: state.lastInputTokens,

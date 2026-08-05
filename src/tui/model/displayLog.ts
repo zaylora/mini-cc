@@ -63,6 +63,12 @@ export function appendAssistantBlocks(
     block,
     depth: payload.depth,
   }));
+  if (hasPendingParentTask(log, payload.depth)) {
+    return {
+      ...log,
+      pendingEntries: [...log.pendingEntries, ...newEntries],
+    };
+  }
   return {
     ...log,
     staticEntries: [...log.staticEntries, ...newEntries],
@@ -101,17 +107,40 @@ export function applyToolEnd(
   );
   if (index === -1) return log;
   const target = log.pendingEntries[index] as Extract<DisplayEntry, { kind: "tool" }>;
-  const finished: DisplayEntry = {
+  const pendingEntries = [...log.pendingEntries];
+  pendingEntries[index] = {
     ...target,
     result: payload.result,
     isError: payload.isError,
   };
+
+  // 只提交队列开头连续已完成的条目。内容按事件顺序入队，嵌套调用中
+  // 父工具（如 task）必然排在它派生的子工具之前，且直到子 Agent 跑完才收到
+  // tool-end，因此子工具和结论会留在 pending 区等待，不会抢到父条目前面。
+  let commitCount = 0;
+  while (commitCount < pendingEntries.length && isSettledEntry(pendingEntries[commitCount])) {
+    commitCount += 1;
+  }
+  if (commitCount === 0) return { ...log, pendingEntries };
+
   return {
-    staticEntries: [...log.staticEntries, finished],
-    pendingEntries: [
-      ...log.pendingEntries.slice(0, index),
-      ...log.pendingEntries.slice(index + 1),
-    ],
+    staticEntries: [...log.staticEntries, ...pendingEntries.slice(0, commitCount)],
+    pendingEntries: pendingEntries.slice(commitCount),
     streamingBlocks: log.streamingBlocks,
   };
+}
+
+function hasPendingParentTask(log: DisplayLog, depth: number): boolean {
+  return log.pendingEntries.some(
+    (entry) =>
+      entry.kind === "tool" &&
+      entry.toolName === "task" &&
+      entry.depth === depth - 1 &&
+      entry.result === undefined,
+  );
+}
+
+function isSettledEntry(entry: DisplayEntry | undefined): boolean {
+  if (!entry) return false;
+  return entry.kind !== "tool" || entry.result !== undefined;
 }

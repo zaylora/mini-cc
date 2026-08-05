@@ -108,6 +108,52 @@ test("多步任务在每次模型响应后立即刷新 input token", async () =>
   }
 });
 
+test("子 Agent 的 todo 不覆盖主 Agent 的 TodoPanel 状态", async () => {
+  const server = createStreamingModelServer([
+    {
+      deltas: [],
+      stopReason: "tool_use",
+      toolUse: {
+        id: "main-todo",
+        name: "todo_write",
+        input: { todos: [{ content: "主任务", status: "in_progress" }] },
+      },
+    },
+    {
+      deltas: [],
+      stopReason: "tool_use",
+      toolUse: { id: "task-1", name: "task", input: { description: "执行子任务" } },
+    },
+    {
+      deltas: [],
+      stopReason: "tool_use",
+      toolUse: {
+        id: "child-todo",
+        name: "todo_write",
+        input: { todos: [{ content: "子任务", status: "in_progress" }] },
+      },
+    },
+    { deltas: ["子任务完成"], stopReason: "end_turn" },
+    { deltas: ["全部完成"], stopReason: "end_turn" },
+  ]);
+  const restore = useTestModel(server.url.origin);
+  const view = render(<SessionHarness hooks={new HookBus()} />);
+
+  try {
+    await flush();
+    await latestSession!.submit("执行主任务");
+    await flush(50);
+
+    expect(latestSession!.todos).toEqual([
+      { content: "主任务", status: "in_progress" },
+    ]);
+  } finally {
+    view.unmount();
+    restore();
+    server.stop(true);
+  }
+});
+
 test("确认请求获准后继续执行并清空 pendingConfirm", async () => {
   const command = process.platform === "win32" ? "Write-Output ok" : "printf ok";
   const server = createStreamingModelServer([

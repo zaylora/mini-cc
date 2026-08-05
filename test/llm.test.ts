@@ -50,6 +50,31 @@ describe("callModelWithRecovery", () => {
     expect(delays).toEqual([2000]);
   });
 
+  test("瞬时错误重试前通知流式中断", async () => {
+    const state = createState();
+    const interruptions: string[] = [];
+    let attempts = 0;
+    const request = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        const error = new Error("connection lost");
+        error.name = "APIConnectionError";
+        throw error;
+      }
+      return response("end_turn", "重试完成");
+    };
+
+    await callModelWithRecovery(state, {
+      system: "system",
+      tools: [],
+      request,
+      sleep: async () => {},
+      onStreamInterrupted: (reason) => interruptions.push(reason),
+    });
+
+    expect(interruptions).toEqual(["connection lost"]);
+  });
+
   test("连续三次 529 后切换备用模型", async () => {
     const state = createState();
     state.modelId = "primary";
@@ -201,6 +226,51 @@ describe("callModelWithRecovery", () => {
       expect(flushed).toBe(true);
       expect(result.stop_reason).toBe("end_turn");
       expect(JSON.stringify(result.content)).toContain("hello world");
+    } finally {
+      server.stop(true);
+      if (previousApiKey === undefined) delete process.env.API_KEY;
+      else process.env.API_KEY = previousApiKey;
+      if (previousBaseUrl === undefined) delete process.env.BASE_URL;
+      else process.env.BASE_URL = previousBaseUrl;
+    }
+  });
+
+  test("流在最终消息前结束时仍刷新已收到的 delta", async () => {
+    const previousApiKey = process.env.API_KEY;
+    const previousBaseUrl = process.env.BASE_URL;
+    process.env.API_KEY = "test-key";
+
+    const incompleteSse = [
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_partial","type":"message","role":"assistant","model":"test-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+      'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"半截内容"}}\n\n',
+    ].join("");
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(incompleteSse, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    });
+    process.env.BASE_URL = server.url.origin;
+
+    try {
+      const state = createState();
+      state.modelId = "test-model";
+      const deltas: string[] = [];
+      let flushCount = 0;
+
+      await expect(callModelWithRecovery(state, {
+        system: "system",
+        tools: [],
+        maxRetries: 0,
+        onTextDelta: (text) => deltas.push(text),
+        onStreamFlush: () => {
+          flushCount += 1;
+        },
+      })).rejects.toThrow();
+
+      expect(deltas).toEqual(["半截内容"]);
+      expect(flushCount).toBe(1);
     } finally {
       server.stop(true);
       if (previousApiKey === undefined) delete process.env.API_KEY;

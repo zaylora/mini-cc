@@ -122,3 +122,62 @@ test("子 Agent 的 assistant-block 带缩进标记", () => {
   expect(frame).toContain("↳");
   expect(frame).toContain("子任务结论");
 });
+
+test("等待父 task 固化的子内容不在动态区提前渲染", () => {
+  const pendingEntries: DisplayEntry[] = [
+    {
+      kind: "tool",
+      id: "task1",
+      toolName: "task",
+      input: { description: "分析 src/tui" },
+      depth: 0,
+    },
+    {
+      kind: "tool",
+      id: "read1",
+      toolName: "read_file",
+      input: { path: "src/tui/App.tsx" },
+      depth: 1,
+      result: "内容",
+      isError: false,
+    },
+    {
+      kind: "assistant-block",
+      id: "report1",
+      depth: 1,
+      block: {
+        kind: "paragraph",
+        spans: [{ kind: "text", text: "tui 分析报告" }],
+      },
+    },
+  ];
+  const view = render(
+    <MessageList staticEntries={[]} pendingEntries={pendingEntries} streamingBlocks={[]} />,
+  );
+
+  expect(view.lastFrame()).toContain("Task(分析 src/tui)");
+  expect(view.lastFrame()).not.toContain("Read(src/tui/App.tsx)");
+  expect(view.lastFrame()).not.toContain("tui 分析报告");
+
+  const staticEntries: DisplayEntry[] = [
+    {
+      kind: "tool",
+      id: "task1",
+      toolName: "task",
+      input: { description: "分析 src/tui" },
+      depth: 0,
+      result: "tui 分析报告",
+      isError: false,
+    },
+    pendingEntries[1]!,
+    pendingEntries[2]!,
+  ];
+  view.rerender(
+    <MessageList staticEntries={staticEntries} pendingEntries={[]} streamingBlocks={[]} />,
+  );
+
+  const finalFrame = view.lastFrame() ?? "";
+  expect(finalFrame.match(/Task\(分析 src\/tui\)/g)).toHaveLength(1);
+  expect(finalFrame).toContain("Read(src/tui/App.tsx)");
+  expect(finalFrame).toContain("tui 分析报告");
+});
