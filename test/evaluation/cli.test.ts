@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { FetchedDataset, LangfuseClient } from "@langfuse/client";
+import { BUILTIN_CASES } from "@/evaluation/cases.js";
 import { runEvaluationCli } from "@/evaluation/cli.js";
 import { createRecordingTelemetry } from "../helpers/recordingTelemetry.js";
 
@@ -78,10 +79,15 @@ describe("评测 CLI", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(createItemCount).toBe(5);
+    expect(createItemCount).toBe(BUILTIN_CASES.length);
     expect(output.join("")).toContain("评测完成");
     expect(output.join("")).toContain("https://cloud.langfuse.com/run/1");
-    expect(errors).toEqual([]);
+    expect(errors.join("")).toContain("[评测] 正在初始化 Langfuse");
+    expect(errors.join("")).toContain("[评测] 正在同步数据集：mini-cc-test");
+    expect(errors.join("")).toContain("[评测] 正在加载评测数据集");
+    expect(errors.join("")).toContain("[评测] 正在扫描 Skills");
+    expect(errors.join("")).toContain("[评测] 开始运行实验：mini-cc-core-eval-2026-08-06T00:00:00.000Z");
+    expect(errors.join("")).toContain("[评测] 实验运行完成");
     expect(telemetry.shutdownCount).toBe(1);
     expect(clientShutdownCount).toBe(1);
   });

@@ -61,6 +61,7 @@ describe("Experiment Runner", () => {
     let taskOutput: EvalItemOutput | undefined;
     let seenMaxConcurrency: number | undefined;
     let evaluatorNames: string[] = [];
+    const progress: string[] = [];
     const item = {
       id: "runner-case",
       input: { prompt: "完成任务", files: {} },
@@ -124,6 +125,7 @@ describe("Experiment Runner", () => {
         completeness: { score: 0.7, reason: "完整" },
         creativity: { score: 0.6, reason: "合理" },
       }),
+      onProgress: (message) => progress.push(message),
     }, {
       runName: "run-1",
       gitCommit: "abc123",
@@ -136,6 +138,14 @@ describe("Experiment Runner", () => {
     expect(new Set(workingDirectories).size).toBe(3);
     expect(taskOutput?.runs.map((run) => run.success)).toEqual([true, false, true]);
     expect(taskOutput?.runs[2]?.finalOutput).toContain("第 3 次完成");
+    expect(progress).toContain("[runner-case] 开始评测：Runner 测试");
+    expect(progress).toContain("[runner-case] 第 1/3 轮：Agent 开始运行");
+    expect(progress.some((message) => message.startsWith("[runner-case] 第 1/3 轮：Agent 运行完成（"))).toBe(true);
+    expect(progress).toContain("[runner-case] 第 1/3 轮：确定性断言完成（1/1 通过）");
+    expect(progress).toContain("[runner-case] 第 1/3 轮：Judge 开始评分");
+    expect(progress).toContain("[runner-case] 第 1/3 轮：Judge 评分完成");
+    expect(progress).toContain("[runner-case] 第 2/3 轮：Agent 运行失败：第二次失败");
+    expect(progress).toContain("[runner-case] 评测完成（3 轮）");
     expect(evaluatorNames).toEqual(expect.arrayContaining([
       "任务成功率",
       "准确性",

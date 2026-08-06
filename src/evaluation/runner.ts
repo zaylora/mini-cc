@@ -44,6 +44,7 @@ export interface EvalItemOutput {
 
 export interface EvaluationDependencies {
   telemetry: Telemetry;
+  onProgress?: (message: string) => void;
   runAgent?: (state: State, options: AgentLoopOptions) => Promise<void>;
   judge?: typeof judgeOutput;
   createWorkspace?: typeof createEvalWorkspace;
@@ -94,9 +95,14 @@ export async function runEvalItem(
   const judge = dependencies.judge ?? judgeOutput;
   const createWorkspace = dependencies.createWorkspace ?? createEvalWorkspace;
   const runs: EvalRunResult[] = [];
+  const progress = dependencies.onProgress ?? (() => {});
+
+  progress(`[${parsed.caseId}] 开始评测：${parsed.name}`);
 
   for (let repeat = 1; repeat <= REPEAT_COUNT; repeat += 1) {
+    progress(`[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：创建工作区`);
     const workspace = await createWorkspace(parsed.files);
+    progress(`[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：工作区已就绪`);
     const originalCwd = process.cwd();
     try {
       process.chdir(workspace.path);
@@ -104,6 +110,7 @@ export async function runEvalItem(
       state.messages.push({ role: "user", content: parsed.prompt });
       let agentError: string | undefined;
       const startedAt = performance.now();
+      progress(`[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Agent 开始运行`);
       try {
         await runAgent(state, {
           hooks: createDefaultHookBus(),
@@ -114,11 +121,19 @@ export async function runEvalItem(
         agentError = errorMessage(error);
       }
       const durationMs = Math.max(0, performance.now() - startedAt);
+      progress(agentError
+        ? `[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Agent 运行失败：${agentError}`
+        : `[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Agent 运行完成（${Math.round(durationMs)}ms）`);
       const finalOutput = latestAssistantText(state);
+      progress(`[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：开始执行确定性断言`);
       const assertionResults = await evaluateAssertions(workspace.path, {
         finalOutput,
         todos: state.todos,
       }, parsed.assertions);
+      const passedAssertions = assertionResults.filter((result) => result.passed).length;
+      progress(
+        `[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：确定性断言完成（${passedAssertions}/${assertionResults.length} 通过）`,
+      );
       const success = agentError === undefined &&
         assertionResults.every((result) => result.passed);
       let judgeResult: JudgeResult | undefined;
@@ -130,6 +145,7 @@ export async function runEvalItem(
           assertionSummary: formatAssertionSummary(assertionResults),
           finalOutput,
         };
+        progress(`[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Judge 开始评分`);
         judgeResult = await judge(judgeInput, {
           telemetry: dependencies.telemetry,
           modelId: dependencies.judgeModelId,
@@ -137,6 +153,9 @@ export async function runEvalItem(
       } catch (error) {
         judgeError = errorMessage(error);
       }
+      progress(judgeError
+        ? `[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Judge 评分失败：${judgeError}`
+        : `[${parsed.caseId}] 第 ${repeat}/${REPEAT_COUNT} 轮：Judge 评分完成`);
 
       runs.push({
         caseId: parsed.caseId,
@@ -156,6 +175,8 @@ export async function runEvalItem(
       await workspace.cleanup();
     }
   }
+
+  progress(`[${parsed.caseId}] 评测完成（${REPEAT_COUNT} 轮）`);
 
   return {
     caseId: parsed.caseId,

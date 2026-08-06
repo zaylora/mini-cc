@@ -45,6 +45,7 @@ export async function runEvaluationCli(
   let observability: ObservabilityLifecycle | undefined;
 
   try {
+    writeLine(stderr, "[评测] 正在初始化 Langfuse");
     const config = getLangfuseConfig(env);
     if (!config) {
       throw new Error(
@@ -61,21 +62,28 @@ export async function runEvaluationCli(
     }
 
     const datasetName = env.LANGFUSE_DATASET_NAME ?? DEFAULT_DATASET_NAME;
+    writeLine(stderr, `[评测] 正在同步数据集：${datasetName}`);
     await syncBuiltinDataset(client, datasetName);
+    writeLine(stderr, "[评测] 数据集同步完成");
+    writeLine(stderr, "[评测] 正在加载评测数据集");
     const dataset = await client.dataset.get(datasetName);
+    writeLine(stderr, "[评测] 正在扫描 Skills");
     const skills = await (options.scanSkills ?? scanSkills)();
     const modelId = (options.getModelId ?? getModelId)();
     const now = (options.now ?? (() => new Date()))();
     const runName = `mini-cc-core-eval-${now.toISOString()}`;
+    writeLine(stderr, `[评测] 开始运行实验：${runName}`);
     const result = await runEvaluationExperiment(dataset, {
       telemetry: observability.telemetry,
       skills,
+      onProgress: (message) => writeLine(stderr, message),
     }, {
       runName,
       gitCommit: (options.getGitCommit ?? readGitCommit)(),
       modelId,
       judgeModelId: modelId,
     });
+    writeLine(stderr, "[评测] 实验运行完成");
 
     writeLine(stdout, await result.format({ includeItemResults: true }));
     if (result.datasetRunUrl) {
@@ -87,6 +95,7 @@ export async function runEvaluationCli(
     return 1;
   } finally {
     if (client) {
+      writeLine(stderr, "[评测] 正在关闭 Langfuse");
       await settleWithin(
         client.shutdown(),
         SHUTDOWN_TIMEOUT_MS,
@@ -95,6 +104,7 @@ export async function runEvaluationCli(
       );
     }
     if (observability) {
+      writeLine(stderr, "[评测] 正在关闭 OpenTelemetry");
       await settleWithin(
         observability.shutdown(SHUTDOWN_TIMEOUT_MS),
         SHUTDOWN_TIMEOUT_MS,
