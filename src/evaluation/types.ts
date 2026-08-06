@@ -2,9 +2,12 @@ import type { Todo } from "@/core/state.js";
 
 export type AssertionSpec =
   | { type: "file_exists"; path: string }
+  | { type: "file_not_exists"; path: string }
   | { type: "file_contains"; path: string; text: string }
+  | { type: "file_not_contains"; path: string; text: string }
   | { type: "command_succeeds"; command: string }
   | { type: "final_contains"; text: string }
+  | { type: "final_not_contains"; text: string }
   | { type: "todos_completed" };
 
 export interface AssertionResult {
@@ -43,5 +46,5 @@ export interface JudgeResult {
   accuracy: JudgeDimension;
   relevance: JudgeDimension;
   completeness: JudgeDimension;
-  creativity: JudgeDimension;
+  changeDiscipline: JudgeDimension;
 }

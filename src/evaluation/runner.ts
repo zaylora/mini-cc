@@ -77,7 +77,7 @@ export function runEvaluationExperiment(
       modelId: options.modelId,
       judgeModelId: options.judgeModelId,
       repeatCount: REPEAT_COUNT,
-      rubricVersion: 1,
+      rubricVersion: 2,
     },
     maxConcurrency: 1,
     task: (item) => runEvalItem(item, nextDependencies),
@@ -193,7 +193,7 @@ function createItemEvaluator() {
     pushScore(evaluations, "准确性", judgeDimensionMean(output.runs, "accuracy"));
     pushScore(evaluations, "相关性", judgeDimensionMean(output.runs, "relevance"));
     pushScore(evaluations, "完整性", judgeDimensionMean(output.runs, "completeness"));
-    pushScore(evaluations, "创造性", judgeDimensionMean(output.runs, "creativity"));
+    pushScore(evaluations, "改动纪律", judgeDimensionMean(output.runs, "changeDiscipline"));
     pushScore(evaluations, "稳定性", output.aggregate.stabilityRate);
     pushScore(evaluations, "平均耗时(ms)", output.aggregate.durationMeanMs);
     pushScore(evaluations, "模型耗时(ms)", output.aggregate.modelDurationMeanMs);
@@ -264,12 +264,15 @@ function isAssertionSpec(value: unknown): value is AssertionSpec {
   const spec = value as Record<string, unknown>;
   switch (spec.type) {
     case "file_exists":
+    case "file_not_exists":
       return typeof spec.path === "string";
     case "file_contains":
+    case "file_not_contains":
       return typeof spec.path === "string" && typeof spec.text === "string";
     case "command_succeeds":
       return typeof spec.command === "string";
     case "final_contains":
+    case "final_not_contains":
       return typeof spec.text === "string";
     case "todos_completed":
       return true;
@@ -304,7 +307,7 @@ function judgeQuality(result: JudgeResult): number {
     result.accuracy.score +
     result.relevance.score +
     result.completeness.score +
-    result.creativity.score
+    result.changeDiscipline.score
   ) / 4;
 }
 

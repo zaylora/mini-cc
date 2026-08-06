@@ -54,6 +54,16 @@ async function evaluateAssertion(
       await access(target);
       return { passed: true, message: `文件存在：${spec.path}` };
     }
+    case "file_not_exists": {
+      const target = resolveWorkspacePath(workspace, spec.path);
+      const exists = await access(target).then(() => true, () => false);
+      return {
+        passed: !exists,
+        message: exists
+          ? `文件不应存在但存在：${spec.path}`
+          : `文件确实不存在：${spec.path}`,
+      };
+    }
     case "file_contains": {
       const target = resolveWorkspacePath(workspace, spec.path);
       const content = await readFile(target, "utf8");
@@ -62,6 +72,17 @@ async function evaluateAssertion(
         message: content.includes(spec.text)
           ? `文件包含目标文本：${spec.path}`
           : `文件不包含目标文本：${spec.path}`,
+        actual: content,
+      };
+    }
+    case "file_not_contains": {
+      const target = resolveWorkspacePath(workspace, spec.path);
+      const content = await readFile(target, "utf8");
+      return {
+        passed: !content.includes(spec.text),
+        message: content.includes(spec.text)
+          ? `文件包含了不应出现的文本：${spec.path}`
+          : `文件未包含不应出现的文本：${spec.path}`,
         actual: content,
       };
     }
@@ -80,6 +101,14 @@ async function evaluateAssertion(
       return {
         passed,
         message: passed ? "最终输出包含目标文本" : "最终输出缺少目标文本",
+        actual: context.finalOutput,
+      };
+    }
+    case "final_not_contains": {
+      const passed = !context.finalOutput.includes(spec.text);
+      return {
+        passed,
+        message: passed ? "最终输出未包含不应出现的文本" : "最终输出包含了不应出现的文本",
         actual: context.finalOutput,
       };
     }

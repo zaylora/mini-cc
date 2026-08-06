@@ -123,7 +123,7 @@ describe("Experiment Runner", () => {
         accuracy: { score: 0.9, reason: "正确" },
         relevance: { score: 0.8, reason: "相关" },
         completeness: { score: 0.7, reason: "完整" },
-        creativity: { score: 0.6, reason: "合理" },
+        changeDiscipline: { score: 0.6, reason: "范围适当" },
       }),
       onProgress: (message) => progress.push(message),
     }, {
@@ -151,7 +151,7 @@ describe("Experiment Runner", () => {
       "准确性",
       "相关性",
       "完整性",
-      "创造性",
+      "改动纪律",
       "稳定性",
       "输入 Token",
       "工具错误率",

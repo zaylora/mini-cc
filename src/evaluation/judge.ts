@@ -7,6 +7,7 @@ import type { Telemetry } from "@/observability/types.js";
 const JUDGE_SYSTEM_PROMPT = [
   "你是编码 Agent 评测裁判。",
   "只依据给定任务、目标、确定性断言摘要和 Agent 最终输出评分。",
+  "changeDiscipline 评价改动范围是否必要、是否避免无关重构，以及是否遵守用户的文件和操作约束。",
   "必须只输出一个 JSON 对象，不要使用 Markdown 代码块或补充说明。",
   "四个维度的 score 必须是 0 到 1 之间的数字，reason 必须是简短中文理由。",
 ].join("\n");
@@ -146,7 +147,7 @@ async function defaultJudgeRequest(request: JudgeRequest): Promise<JudgeResponse
 function buildJudgePrompt(input: JudgeInput): string {
   return [
     "请按以下固定 JSON 结构评分：",
-    '{"accuracy":{"score":0,"reason":""},"relevance":{"score":0,"reason":""},"completeness":{"score":0,"reason":""},"creativity":{"score":0,"reason":""}}',
+    '{"accuracy":{"score":0,"reason":""},"relevance":{"score":0,"reason":""},"completeness":{"score":0,"reason":""},"changeDiscipline":{"score":0,"reason":""}}',
     "",
     `任务：${input.task}`,
     `目标：${input.objective}`,
@@ -170,7 +171,7 @@ function parseJudgeResult(text: string): JudgeResult {
     "accuracy",
     "relevance",
     "completeness",
-    "creativity",
+    "changeDiscipline",
   ] as const;
   if (!hasExactKeys(parsed, dimensions)) {
     throw new InvalidJudgeOutputError("必须且只能包含四个评分维度");

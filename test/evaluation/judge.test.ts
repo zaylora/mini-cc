@@ -22,7 +22,7 @@ describe("Anthropic Judge", () => {
         accuracy: { score: 0.9, reason: "结果正确" },
         relevance: { score: 0.8, reason: "紧扣任务" },
         completeness: { score: 0.7, reason: "覆盖主要要求" },
-        creativity: { score: 0.6, reason: "方案合理" },
+        changeDiscipline: { score: 0.6, reason: "改动范围适当" },
       }),
     ];
 
@@ -72,7 +72,7 @@ describe("Anthropic Judge", () => {
           accuracy: { score: 1.2, reason: "越界" },
           relevance: { score: 0.8, reason: "正常" },
           completeness: { score: 0.7, reason: "正常" },
-          creativity: { score: 0.6, reason: "正常" },
+          changeDiscipline: { score: 0.6, reason: "正常" },
         });
       },
     })).rejects.toBeInstanceOf(JudgeError);
@@ -85,6 +85,6 @@ function validResult(): string {
     accuracy: { score: 0.9, reason: "结果正确" },
     relevance: { score: 0.8, reason: "紧扣任务" },
     completeness: { score: 0.7, reason: "覆盖主要要求" },
-    creativity: { score: 0.6, reason: "方案合理" },
+    changeDiscipline: { score: 0.6, reason: "改动范围适当" },
   });
 }
