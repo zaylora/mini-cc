@@ -2,6 +2,7 @@ import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages
 import type { AgentEvents } from "@/core/events.js";
 import { createState, type State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
+import type { Telemetry } from "@/observability/types.js";
 import type { SkillRegistry } from "@/tools/skill.js";
 
 export interface SubagentOptions {
@@ -11,6 +12,7 @@ export interface SubagentOptions {
   maxStopRespawns?: number;
   skills?: SkillRegistry;
   events?: AgentEvents;
+  telemetry?: Telemetry;
 }
 
 type RunAgent = (state: State, options: SubagentOptions) => Promise<void>;

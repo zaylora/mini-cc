@@ -17,10 +17,11 @@
     "dist"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
-    "dev": "bun run src/cli/main.ts",
+    "dev": "bun src/cli/main.ts",
+    "eval": "bun src/evaluation/cli.ts",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && bun -e \"import { cp, rm } from 'node:fs/promises'; await rm('dist/skills', { recursive: true, force: true }); await cp('src/skills', 'dist/skills', { recursive: true });\"",
     "start": "node dist/cli/main.js",
     "test": "bun test",
@@ -28,6 +29,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
+    "@langfuse/client": "^5.10.0",
+    "@langfuse/otel": "^5.10.0",
+    "@langfuse/tracing": "^5.10.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-node": "^0.221.0",
     "dotenv": "^16.6.1",
     "glob": "^13.0.6",
     "ink": "^5.2.1",

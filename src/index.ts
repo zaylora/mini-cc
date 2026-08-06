@@ -10,6 +10,11 @@ export { createRuntimeTools } from "@/core/runtime.js";
 export type { RuntimeToolContext, RuntimeTools } from "@/core/runtime.js";
 export { createState } from "@/core/state.js";
 export type { State, Todo, TodoStatus } from "@/core/state.js";
+export { noopTelemetry } from "@/observability/noop.js";
+export type {
+  Telemetry,
+  TelemetryObservation,
+} from "@/observability/types.js";
 export { createContextManager } from "@/context/manager.js";
 export type {
   ContextManager,

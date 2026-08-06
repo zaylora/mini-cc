@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { App } from "@/tui/App.js";
 import { HookBus } from "@/hooks/bus.js";
+import { noopTelemetry } from "@/observability/noop.js";
 import type { SkillRegistry } from "@/tools/skill.js";
 import {
   createStreamingModelServer,
@@ -14,7 +15,12 @@ const emptySkills: SkillRegistry = new Map();
 
 test("空会话显示欢迎面板", async () => {
   const { lastFrame } = render(
-    <App workingDirectory="/tmp" hooks={new HookBus()} skills={emptySkills} />,
+    <App
+      workingDirectory="/tmp"
+      hooks={new HookBus()}
+      skills={emptySkills}
+      telemetry={noopTelemetry}
+    />,
   );
   await flush();
 
@@ -31,7 +37,12 @@ test("提交问题后渲染用户输入与模型回复", async () => {
 
   try {
     const { stdin, lastFrame } = render(
-      <App workingDirectory="/tmp" hooks={hooks} skills={emptySkills} />,
+      <App
+        workingDirectory="/tmp"
+        hooks={hooks}
+        skills={emptySkills}
+        telemetry={noopTelemetry}
+      />,
     );
     await flush();
     stdin.write("你好");
@@ -65,7 +76,12 @@ test("PreToolUse 请求确认时展示 ConfirmModal，批准后继续执行并�
 
   try {
     const { stdin, lastFrame } = render(
-      <App workingDirectory="/tmp" hooks={hooks} skills={emptySkills} />,
+      <App
+        workingDirectory="/tmp"
+        hooks={hooks}
+        skills={emptySkills}
+        telemetry={noopTelemetry}
+      />,
     );
     await flush();
     stdin.write("跑一下");
@@ -94,7 +110,12 @@ test("流式 delta 逐步上屏，最终完整文本出现在渲染结果中", a
 
   try {
     const { stdin, lastFrame } = render(
-      <App workingDirectory="/tmp" hooks={hooks} skills={emptySkills} />,
+      <App
+        workingDirectory="/tmp"
+        hooks={hooks}
+        skills={emptySkills}
+        telemetry={noopTelemetry}
+      />,
     );
     await flush();
     stdin.write("你好");

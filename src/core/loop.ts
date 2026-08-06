@@ -9,8 +9,10 @@ import type { AgentEvents } from "@/core/events.js";
 import { callModelWithRecovery, summarizeMessages } from "@/core/llm.js";
 import { maxOutputTokensFor } from "@/core/modelLimits.js";
 import { createRuntimeTools } from "@/core/runtime.js";
-import type { State } from "@/core/state.js";
+import { createAgentMetrics, type State } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
+import { noopTelemetry } from "@/observability/noop.js";
+import type { Telemetry, TelemetryObservation } from "@/observability/types.js";
 import { createPromptAssembler } from "@/prompt/assembler.js";
 import { scanSkills, type SkillRegistry } from "@/tools/skill.js";
 import { spawnSubagent } from "@/tools/task.js";
@@ -29,24 +31,54 @@ export interface AgentLoopOptions {
   maxStopRespawns?: number;
   skills?: SkillRegistry;
   events?: AgentEvents;
+  telemetry?: Telemetry;
 }
 
 export async function agentLoop(
   state: State,
   options: AgentLoopOptions = {},
 ): Promise<void> {
+  const telemetry = options.telemetry ?? noopTelemetry;
+  return telemetry.observe("mini-cc-agent", {
+    asType: "agent",
+    input: latestUserInput(state),
+    metadata: {
+      depth: state.depth,
+      workspace: process.cwd(),
+      modelId: getModelId(),
+    },
+  }, async (agent) => {
+    await runAgentLoop(state, options, telemetry);
+    agent.update({
+      output: latestAssistantText(state),
+      metadata: { ...state.metrics },
+    });
+  });
+}
+
+async function runAgentLoop(
+  state: State,
+  options: AgentLoopOptions,
+  telemetry: Telemetry,
+): Promise<void> {
   const maxSteps = options.maxSteps ?? MAX_STEPS;
   const maxStopRespawns = options.maxStopRespawns ?? 1;
+  state.metrics = createAgentMetrics();
   const skills = options.skills ?? await scanSkills();
   const runtime = createRuntimeTools({
     state,
     skills,
     spawnSubagent: (description) =>
-      spawnSubagent(description, state.depth, { ...options, skills }, agentLoop),
+      spawnSubagent(
+        description,
+        state.depth,
+        { ...options, skills, telemetry },
+        agentLoop,
+      ),
   });
   const promptAssembler = createPromptAssembler(skills);
   const contextManager = createContextManager({
-    summarize: (messages) => summarizeMessages(state, messages),
+    summarize: (messages) => summarizeMessages(state, messages, telemetry),
   });
   state.steps = 0;
   state.stopRespawnCount = 0;
@@ -65,6 +97,7 @@ export async function agentLoop(
     const response = await callModelWithRecovery(state, {
       system,
       tools: runtime.definitions,
+      telemetry,
       beforeRequest: (currentState) => contextManager.manage(currentState),
       reactiveCompact: (currentState) => contextManager.reactiveCompact(currentState),
       fallbackModelId: process.env.FALLBACK_MODEL_ID,
@@ -120,89 +153,11 @@ export async function agentLoop(
 
     const results: ToolResultBlockParam[] = [];
     for (const toolUse of toolUses) {
-      options.events?.emit("tool-start", {
-        id: toolUse.id,
-        toolName: toolUse.name,
+      results.push(await telemetry.observe(toolUse.name, {
+        asType: "tool",
         input: toolUse.input,
-        depth: state.depth,
-      });
-
-      const preToolUse = await options.hooks?.trigger("PreToolUse", {
-        toolName: toolUse.name,
-        input: toolUse.input,
-      });
-      if (preToolUse?.action === "block") {
-        results.push(blockedResult(toolUse.id, preToolUse.reason));
-        options.events?.emit("tool-end", {
-          id: toolUse.id,
-          toolName: toolUse.name,
-          result: preToolUse.reason,
-          isError: true,
-          depth: state.depth,
-        });
-        continue;
-      }
-      if (preToolUse?.action === "ask") {
-        const allowed = await options.confirm?.(preToolUse.message);
-        if (!allowed) {
-          const reason = "权限被拒：用户未批准";
-          results.push(blockedResult(toolUse.id, reason));
-          options.events?.emit("tool-end", {
-            id: toolUse.id,
-            toolName: toolUse.name,
-            result: reason,
-            isError: true,
-            depth: state.depth,
-          });
-          continue;
-        }
-      }
-
-      try {
-        const result = await runtime.dispatch(toolUse.name, toolUse.input);
-        const postToolUse = await options.hooks?.trigger("PostToolUse", {
-          toolName: toolUse.name,
-          input: toolUse.input,
-          result,
-        });
-        const content =
-          postToolUse?.action === "inject"
-            ? `${result}\n${postToolUse.context}`
-            : result;
-        results.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content,
-        });
-        options.events?.emit("tool-end", {
-          id: toolUse.id,
-          toolName: toolUse.name,
-          result: content,
-          isError: false,
-          depth: state.depth,
-        });
-        if (toolUse.name === "todo_write") {
-          options.events?.emit("todo-changed", {
-            todos: state.todos,
-            depth: state.depth,
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        results.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: message,
-          is_error: true,
-        });
-        options.events?.emit("tool-end", {
-          id: toolUse.id,
-          toolName: toolUse.name,
-          result: message,
-          isError: true,
-          depth: state.depth,
-        });
-      }
+        metadata: { toolUseId: toolUse.id, depth: state.depth },
+      }, (tool) => executeToolUse(state, options, runtime, toolUse, tool)));
     }
     state.messages.push({
       role: "user",
@@ -211,6 +166,137 @@ export async function agentLoop(
   }
 
   throw new MaxStepsExceededError(maxSteps);
+}
+
+async function executeToolUse(
+  state: State,
+  options: AgentLoopOptions,
+  runtime: ReturnType<typeof createRuntimeTools>,
+  toolUse: ToolUseBlock,
+  tool: TelemetryObservation,
+): Promise<ToolResultBlockParam> {
+  const startedAt = performance.now();
+  let output: string | undefined;
+  let isError = false;
+  state.metrics.toolCalls += 1;
+
+  try {
+    options.events?.emit("tool-start", {
+      id: toolUse.id,
+      toolName: toolUse.name,
+      input: toolUse.input,
+      depth: state.depth,
+    });
+
+    const preToolUse = await options.hooks?.trigger("PreToolUse", {
+      toolName: toolUse.name,
+      input: toolUse.input,
+    });
+    if (preToolUse?.action === "block") {
+      isError = true;
+      output = preToolUse.reason;
+      emitToolEnd(options, state, toolUse, output, true);
+      return blockedResult(toolUse.id, output);
+    }
+    if (preToolUse?.action === "ask") {
+      const allowed = await options.confirm?.(preToolUse.message);
+      if (!allowed) {
+        isError = true;
+        output = "权限被拒：用户未批准";
+        emitToolEnd(options, state, toolUse, output, true);
+        return blockedResult(toolUse.id, output);
+      }
+    }
+
+    try {
+      const result = await runtime.dispatch(toolUse.name, toolUse.input);
+      const postToolUse = await options.hooks?.trigger("PostToolUse", {
+        toolName: toolUse.name,
+        input: toolUse.input,
+        result,
+      });
+      output = postToolUse?.action === "inject"
+        ? `${result}\n${postToolUse.context}`
+        : result;
+      emitToolEnd(options, state, toolUse, output, false);
+      if (toolUse.name === "todo_write") {
+        options.events?.emit("todo-changed", {
+          todos: state.todos,
+          depth: state.depth,
+        });
+      }
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: output,
+      };
+    } catch (error) {
+      isError = true;
+      output = errorMessage(error);
+      emitToolEnd(options, state, toolUse, output, true);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: output,
+        is_error: true,
+      };
+    }
+  } catch (error) {
+    isError = true;
+    output = errorMessage(error);
+    throw error;
+  } finally {
+    const durationMs = Math.max(0, performance.now() - startedAt);
+    state.metrics.toolDurationMs += durationMs;
+    if (isError) state.metrics.toolErrors += 1;
+    tool.update({
+      output,
+      level: isError ? "ERROR" : "DEFAULT",
+      statusMessage: isError ? output : undefined,
+      metadata: { isError, durationMs },
+    });
+  }
+}
+
+function emitToolEnd(
+  options: AgentLoopOptions,
+  state: State,
+  toolUse: ToolUseBlock,
+  result: string,
+  isError: boolean,
+): void {
+  options.events?.emit("tool-end", {
+    id: toolUse.id,
+    toolName: toolUse.name,
+    result,
+    isError,
+    depth: state.depth,
+  });
+}
+
+function latestUserInput(state: State): unknown {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message?.role === "user") return message.content;
+  }
+  return undefined;
+}
+
+function latestAssistantText(state: State): string {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message?.role !== "assistant") continue;
+    if (typeof message.content === "string") return message.content;
+    return message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+  }
+  return "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function blockedResult(toolUseId: string, reason: string): ToolResultBlockParam {

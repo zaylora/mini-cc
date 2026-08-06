@@ -10,6 +10,18 @@ export interface Todo {
   status: TodoStatus;
 }
 
+export interface AgentMetrics {
+  inputTokens: number;
+  outputTokens: number;
+  modelCalls: number;
+  modelDurationMs: number;
+  firstTokenLatenciesMs: number[];
+  toolCalls: number;
+  toolErrors: number;
+  toolDurationMs: number;
+  retries: number;
+}
+
 export interface State {
   messages: MessageParam[];
   steps: number;
@@ -26,6 +38,21 @@ export interface State {
   compactFailures: number;
   recoveryCount: number;
   hasAttemptedReactiveCompact: boolean;
+  metrics: AgentMetrics;
+}
+
+export function createAgentMetrics(): AgentMetrics {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    modelCalls: 0,
+    modelDurationMs: 0,
+    firstTokenLatenciesMs: [],
+    toolCalls: 0,
+    toolErrors: 0,
+    toolDurationMs: 0,
+    retries: 0,
+  };
 }
 
 export function createState(depth = 0): State {
@@ -47,5 +74,6 @@ export function createState(depth = 0): State {
     compactFailures: 0,
     recoveryCount: 0,
     hasAttemptedReactiveCompact: false,
+    metrics: createAgentMetrics(),
   };
 }

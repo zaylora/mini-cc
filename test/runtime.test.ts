@@ -8,6 +8,7 @@ import { createRuntimeTools } from "@/core/runtime.js";
 import { createState } from "@/core/state.js";
 import { HookBus } from "@/hooks/bus.js";
 import { scanSkills } from "@/tools/skill.js";
+import { createRecordingTelemetry } from "./helpers/recordingTelemetry.js";
 
 describe("v4 runtime", () => {
   const directories: string[] = [];
@@ -88,6 +89,7 @@ describe("v4 runtime", () => {
     ]);
     const restore = useTestModel(server.url.origin);
     const hooks = new HookBus();
+    const telemetry = createRecordingTelemetry();
     const calls: string[] = [];
     hooks.register("PreToolUse", ({ toolName }) => {
       calls.push(toolName);
@@ -97,7 +99,7 @@ describe("v4 runtime", () => {
     try {
       const state = createState();
       state.messages.push({ role: "user", content: "父级私密上下文" });
-      await agentLoop(state, { hooks });
+      await agentLoop(state, { hooks, telemetry });
 
       expect(requests).toHaveLength(4);
       expect(JSON.stringify(requests[1]?.messages)).toContain("检查子任务");
@@ -114,6 +116,17 @@ describe("v4 runtime", () => {
         role: "assistant",
         content: [{ type: "text", text: "父任务完成" }],
       });
+      expect(telemetry.tree()).toMatchObject([{
+        type: "agent",
+        children: [
+          expect.objectContaining({ type: "generation" }),
+          expect.objectContaining({
+            type: "tool",
+            children: [expect.objectContaining({ type: "agent" })],
+          }),
+          expect.objectContaining({ type: "generation" }),
+        ],
+      }]);
     } finally {
       restore();
       server.stop(true);

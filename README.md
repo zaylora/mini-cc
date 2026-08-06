@@ -22,6 +22,8 @@
 | 权限与 Hook    | 已实现，非沙箱   | Bash 命令阻断/确认、文件路径约束、工作目录注入和调用审计              |
 | 错误恢复       | 已实现           | 429/529/连接错误重试、备用模型降级、截断续写、上下文超限恢复          |
 | 流式 TUI       | 已实现           | Ink + React、流式 Markdown、工具状态、Todo、权限确认和上下文用量      |
+| Langfuse 可观测性 | 已实现         | 可选接入 Cloud，记录 Agent、模型、工具、子 Agent、错误、Token 和延迟  |
+| 回归评测       | 已实现           | Cloud Dataset、确定性断言、Anthropic Judge、每项顺序运行 3 次         |
 | 原生上网       | 未实现           | 没有 Web Search、网页抓取、浏览器或引用管理工具                       |
 
 ## 核心流程
@@ -52,7 +54,7 @@ flowchart TD
 ### 环境要求
 
 - Bun：依赖安装、开发运行、测试和构建
-- Node.js 18+：运行编译后的 ESM CLI
+- Node.js 20+：运行编译后的 ESM CLI 和 Langfuse v5
 - Anthropic API 或兼容 Anthropic Messages API 的服务
 - 支持 TTY 的交互式终端
 
@@ -78,6 +80,22 @@ MODEL_ID=your_model_id
 ```
 
 建议明确设置 `MODEL_ID`，并以实际 API 服务支持的模型名称为准。
+
+### 配置 Langfuse Cloud（可选）
+
+不配置 Langfuse 时，现有 TUI 和 Agent 行为不变。需要上传 Trace 或运行回归评测时，在 `.env` 中增加：
+
+```dotenv
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_DATASET_NAME=mini-cc-core-eval
+EVAL_WORKSPACE_ROOT=E:\\mini-cc-eval
+```
+
+`LANGFUSE_BASE_URL` 默认使用 EU Cloud。使用 US、JP、HIPAA 或自托管实例时，应改为对应实例地址。
+
+> 数据风险：启用后，完整 System Prompt、消息上下文、工具参数、工具结果、Agent 输出以及其中包含的源码内容会发送到 Langfuse。当前实现不脱敏、不截断；不要在含有不应上传的密钥、个人信息或受限源码的目录中启用。
 
 ### 启动
 
@@ -209,6 +227,46 @@ TUI 基于 Ink + React，支持：
 - 危险命令的允许/拒绝确认框
 - 当前模型、步骤数和上下文 token 用量
 
+### 9. Langfuse 可观测性与回归评测
+
+配置 Langfuse 后，TUI 会按以下层级记录 Trace：
+
+```text
+Agent
+├── Generation（完整 Prompt、上下文、工具定义、输出、Token、首 Token 和耗时）
+├── Tool（参数、结果、错误和耗时）
+│   └── 子 Agent
+└── 重试、模型降级等 Event
+```
+
+运行 Cloud 评测：
+
+```powershell
+bun run eval
+```
+
+首次运行会创建或同步 `LANGFUSE_DATASET_NAME` 指定的 Dataset。内置评测覆盖创建文件、精准编辑、测试修复、工具失败恢复和多步骤 Todo；每个任务在不同临时目录中顺序运行 3 次，单次失败不会中止后续任务。`EVAL_WORKSPACE_ROOT` 可选，用于指定临时评测工作区的父目录；未配置时使用系统临时目录。每次运行仍会创建唯一子目录，评测结束后自动清理。
+
+每次运行先执行文件、命令、最终输出和 Todo 等确定性断言，再由当前 Anthropic 模型独立评估准确性、相关性、完整性和创造性。Dataset Run 同时记录任务成功率、断言通过率、延迟、Token、工具错误率、重试成功率和稳定性。模型成本由 Langfuse 根据 generation 的模型 ID 与 usage 计算；无法匹配价格的自定义模型可能不显示成本。
+
+一次完整内置评测至少包含 15 次真实 Agent 运行和 15 次 Judge 调用，会产生 Anthropic API 与 Langfuse 用量。运行前请确认配额和费用。
+
+真实 Bad Case 可以在 Langfuse UI 中加入同一 Dataset，Item 需要满足以下结构：
+
+```json
+{
+  "input": { "prompt": "任务说明", "files": { "path": "初始内容" } },
+  "expectedOutput": { "objective": "验收目标" },
+  "metadata": {
+    "schemaVersion": 1,
+    "name": "用例名称",
+    "assertions": [{ "type": "file_exists", "path": "result.txt" }]
+  }
+}
+```
+
+`command_succeeds` 断言会在本机临时工作区执行 Dataset 中的命令。只允许可信成员编辑评测 Dataset，不要运行来源不明的 Bad Case。
+
 ## 未实现与已知边界
 
 | 能力          | 当前边界                                                                                                                                                            |
@@ -220,7 +278,7 @@ TUI 基于 Ink + React，支持：
 | 高级代码编辑  | 没有 AST/LSP 语义编辑、补丁冲突处理、模糊匹配或多处批量替换                                                                                                         |
 | 会话恢复      | `.minicc/transcripts` 用于压缩前留档和排查，不会在新进程启动时自动恢复历史                                                                                          |
 | 任务控制      | 执行过程中没有用户主动取消、暂停、恢复或模型流中断续传                                                                                                              |
-| Headless 模式 | 没有非交互式一次性命令、管道输入、HTTP 服务或 CI 执行模式                                                                                                           |
+| Headless 模式 | 没有通用的非交互式一次性 Agent 命令、管道输入、HTTP 服务或 CI 执行模式；仅提供专用的 `bun run eval` 评测入口                                                        |
 | 扩展协议      | 没有 MCP 接入、浏览器工具、图片理解或自动发现用户级/项目级 Skills                                                                                                   |
 | 多 Provider   | 当前直接使用 Anthropic SDK 和 Anthropic Messages API 结构，没有 OpenAI、Gemini 等统一 Provider 抽象                                                                 |
 
@@ -231,8 +289,10 @@ src/
 ├── cli/         # CLI 入口与工作目录解析
 ├── context/     # 上下文预算、压缩、结果与 transcript 落盘
 ├── core/        # Agent Loop、State、模型恢复、事件和运行时工具绑定
+├── evaluation/  # Dataset 同步、隔离工作区、断言、Judge、Runner 和评测 CLI
 ├── hooks/       # HookBus、权限、审计和默认 Hook
 ├── markdown/    # 增量 Markdown 块与行内语法解析
+├── observability/ # Langfuse/OpenTelemetry 适配和空实现
 ├── prompt/      # System Prompt 分段组装与缓存
 ├── skills/      # 随包发布的内置 Skills
 ├── tools/       # Bash、文件、Todo、Skill、子 Agent 工具

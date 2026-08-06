@@ -4,6 +4,7 @@ import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState, type State, type Todo } from "@/core/state.js";
 import type { HookBus } from "@/hooks/bus.js";
 import type { MarkdownBlock } from "@/markdown/blocks.js";
+import type { Telemetry } from "@/observability/types.js";
 import {
   appendAssistantBlocks,
   appendAssistantMessage,
@@ -30,6 +31,7 @@ import type { SkillRegistry } from "@/tools/skill.js";
 export interface UseAgentSessionOptions {
   hooks: HookBus;
   skills: SkillRegistry;
+  telemetry: Telemetry;
 }
 
 export interface AgentSession {
@@ -43,7 +45,11 @@ export interface AgentSession {
   resolveConfirm: (allowed: boolean) => void;
 }
 
-export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): AgentSession {
+export function useAgentSession({
+  hooks,
+  skills,
+  telemetry,
+}: UseAgentSessionOptions): AgentSession {
   const stateRef = useRef<State>();
   if (!stateRef.current) stateRef.current = createState();
   const eventsRef = useRef(createAgentEvents());
@@ -138,6 +144,7 @@ export function useAgentSession({ hooks, skills }: UseAgentSessionOptions): Agen
       await agentLoop(state, {
         hooks,
         skills,
+        telemetry,
         events: eventsRef.current,
         confirm: confirmBridgeRef.current.confirm,
       });

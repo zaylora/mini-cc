@@ -7,6 +7,8 @@ import type {
 import { getAnthropicClientOptions } from "@/config.js";
 import { maxOutputTokensFor } from "@/core/modelLimits.js";
 import type { State } from "@/core/state.js";
+import { noopTelemetry } from "@/observability/noop.js";
+import type { Telemetry } from "@/observability/types.js";
 
 let client: Anthropic | undefined;
 let clientOptionsKey: string | undefined;
@@ -34,6 +36,7 @@ export interface ModelRecoveryOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
   maxRetries?: number;
+  telemetry?: Telemetry;
   onTextDelta?: (text: string) => void;
   onStreamFlush?: () => void;
   onStreamInterrupted?: (reason: string) => void;
@@ -43,22 +46,27 @@ export async function callModelWithRecovery(
   state: State,
   options: ModelRecoveryOptions,
 ): Promise<Message> {
-  const request = options.request ?? ((modelRequest) =>
-    requestModel(modelRequest, options.onTextDelta, options.onStreamFlush));
   const sleep = options.sleep ?? defaultSleep;
   const random = options.random ?? Math.random;
   const maxRetries = options.maxRetries ?? MAX_TRANSIENT_RETRIES;
+  const telemetry = options.telemetry ?? noopTelemetry;
   let transientRetries = 0;
 
   while (true) {
+    let attemptedModelId = state.modelId;
     try {
       await options.beforeRequest?.(state);
-      const response = await request({
+      attemptedModelId = state.modelId;
+      const response = await observeModelAttempt(state, telemetry, {
         system: options.system,
         messages: state.messages,
         tools: options.tools,
         modelId: state.modelId,
         maxTokens: state.maxTokens,
+      }, {
+        request: options.request,
+        onTextDelta: options.onTextDelta,
+        onStreamFlush: options.onStreamFlush,
       });
       state.consecutive529 = 0;
       state.lastInputTokens = response.usage.input_tokens;
@@ -86,15 +94,38 @@ export async function callModelWithRecovery(
       options.onStreamInterrupted?.(errorMessage(error));
       if (statusOf(error) === 529) {
         state.consecutive529 += 1;
-        if (state.consecutive529 >= 3 && options.fallbackModelId) {
+        if (
+          state.consecutive529 >= 3 &&
+          options.fallbackModelId &&
+          state.modelId !== options.fallbackModelId
+        ) {
           state.modelId = options.fallbackModelId;
           state.maxTokens = maxOutputTokensFor(state.modelId);
+          telemetry.event("model-fallback", {
+            level: "WARNING",
+            statusMessage: errorMessage(error),
+            metadata: {
+              fromModelId: attemptedModelId,
+              toModelId: state.modelId,
+            },
+          });
         }
       } else {
         state.consecutive529 = 0;
       }
       const delay = retryDelay(error, transientRetries, random);
       transientRetries += 1;
+      state.metrics.retries += 1;
+      telemetry.event("model-retry", {
+        level: "WARNING",
+        statusMessage: errorMessage(error),
+        metadata: {
+          attempt: transientRetries,
+          delayMs: delay,
+          modelId: attemptedModelId,
+          status: statusOf(error),
+        },
+      });
       await sleep(delay);
     }
   }
@@ -103,8 +134,9 @@ export async function callModelWithRecovery(
 export async function summarizeMessages(
   state: State,
   messages: MessageParam[],
+  telemetry: Telemetry = noopTelemetry,
 ): Promise<string> {
-  const response = await requestModel({
+  const response = await observeModelAttempt(state, telemetry, {
     system: "只输出文本摘要，不要调用工具。",
     messages: [{
       role: "user",
@@ -119,7 +151,7 @@ export async function summarizeMessages(
     tools: [],
     modelId: state.modelId,
     maxTokens: 2_000,
-  });
+  }, {});
   const summary = response.content
     .filter((block) => block.type === "text")
     .map((block) => block.text)
@@ -127,6 +159,82 @@ export async function summarizeMessages(
     .trim();
   if (!summary) throw new Error("上下文摘要为空");
   return summary;
+}
+
+interface ModelAttemptOptions {
+  request?: (request: ModelRequest) => Promise<Message>;
+  onTextDelta?: (text: string) => void;
+  onStreamFlush?: () => void;
+}
+
+async function observeModelAttempt(
+  state: State,
+  telemetry: Telemetry,
+  request: ModelRequest,
+  options: ModelAttemptOptions,
+): Promise<Message> {
+  const startedAt = performance.now();
+  let completionStartTime: Date | undefined;
+  state.metrics.modelCalls += 1;
+
+  return telemetry.observe("anthropic-generation", {
+    asType: "generation",
+    input: {
+      system: request.system,
+      messages: request.messages,
+      tools: request.tools,
+    },
+    model: request.modelId,
+    modelParameters: { maxTokens: request.maxTokens },
+  }, async (generation) => {
+    try {
+      const response = options.request
+        ? await options.request(request)
+        : await requestModel(
+          request,
+          (text) => {
+            if (!completionStartTime) {
+              completionStartTime = new Date();
+              state.metrics.firstTokenLatenciesMs.push(
+                Math.max(0, performance.now() - startedAt),
+              );
+              generation.update({ completionStartTime });
+            }
+            options.onTextDelta?.(text);
+          },
+          options.onStreamFlush,
+        );
+      const inputTokens = response.usage.input_tokens;
+      const outputTokens = response.usage.output_tokens;
+      state.metrics.inputTokens += inputTokens;
+      state.metrics.outputTokens += outputTokens;
+      generation.update({
+        output: response.content,
+        model: response.model || request.modelId,
+        usageDetails: {
+          input: inputTokens,
+          output: outputTokens,
+          total: inputTokens + outputTokens,
+        },
+        completionStartTime,
+        metadata: {
+          messageId: response.id,
+          stopReason: response.stop_reason,
+        },
+      });
+      return response;
+    } catch (error) {
+      generation.update({
+        level: "ERROR",
+        statusMessage: errorMessage(error),
+      });
+      throw error;
+    } finally {
+      const durationMs = Math.max(0, performance.now() - startedAt);
+      state.metrics.modelDurationMs += durationMs;
+      generation.update({ metadata: { durationMs } });
+    }
+  });
 }
 
 async function requestModel(

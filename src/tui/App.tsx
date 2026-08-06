@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Box } from "ink";
 import { getModelId } from "@/config.js";
 import type { HookBus } from "@/hooks/bus.js";
+import type { Telemetry } from "@/observability/types.js";
 import type { SkillRegistry } from "@/tools/skill.js";
 import { ConfirmModal } from "@/tui/components/ConfirmModal.js";
 import { InputBox } from "@/tui/components/InputBox.js";
@@ -15,9 +16,15 @@ export interface AppProps {
   workingDirectory: string;
   hooks: HookBus;
   skills: SkillRegistry;
+  telemetry: Telemetry;
 }
 
-export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element {
+export function App({
+  workingDirectory,
+  hooks,
+  skills,
+  telemetry,
+}: AppProps): JSX.Element {
   const [input, setInput] = useState("");
   const {
     displayLog,
@@ -28,7 +35,7 @@ export function App({ workingDirectory, hooks, skills }: AppProps): JSX.Element 
     pendingConfirm,
     submit,
     resolveConfirm,
-  } = useAgentSession({ hooks, skills });
+  } = useAgentSession({ hooks, skills, telemetry });
   const model = getModelId();
   const showWelcome =
     displayLog.staticEntries.length === 0 &&

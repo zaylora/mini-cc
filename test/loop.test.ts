@@ -3,6 +3,7 @@ import { createAgentEvents } from "@/core/events.js";
 import { agentLoop, MaxStepsExceededError } from "@/core/loop.js";
 import { createState } from "@/core/state.js";
 import { HookBus } from "@/hooks/bus.js";
+import { createRecordingTelemetry } from "./helpers/recordingTelemetry.js";
 
 test("agent loop 回灌工具结果并受步数上限保护", async () => {
   const requests: Array<{ messages: unknown[] }> = [];
@@ -89,6 +90,43 @@ test("PreToolUse 拒绝后回灌原因且不执行工具", async () => {
 
     expect(JSON.stringify(requests[1]?.messages)).toContain("权限被拒");
     expect(JSON.stringify(requests[1]?.messages)).not.toContain("未知工具");
+  } finally {
+    restore();
+    server.stop(true);
+  }
+});
+
+test("Agent、generation 和 tool observation 保持嵌套层级", async () => {
+  const requests: Array<{ messages: unknown[] }> = [];
+  const command = process.platform === "win32" ? "Write-Output traced" : "printf traced";
+  const server = createModelServer(requests, [
+    [{ type: "tool_use", id: "trace-tool", name: "bash", input: { command } }],
+    [{ type: "text", text: "完成" }],
+  ]);
+  const restore = useTestModel(server.url.origin);
+  const telemetry = createRecordingTelemetry();
+
+  try {
+    const state = createState();
+    state.messages.push({ role: "user", content: "执行带埋点的任务" });
+    await agentLoop(state, { telemetry });
+
+    expect(telemetry.tree()).toMatchObject([{
+      type: "agent",
+      attributes: {
+        input: "执行带埋点的任务",
+        output: "完成",
+      },
+      children: [
+        expect.objectContaining({ type: "generation" }),
+        expect.objectContaining({
+          type: "tool",
+          attributes: expect.objectContaining({ output: expect.stringContaining("traced") }),
+        }),
+        expect.objectContaining({ type: "generation" }),
+      ],
+    }]);
+    expect(state.metrics).toMatchObject({ toolCalls: 1, toolErrors: 0 });
   } finally {
     restore();
     server.stop(true);

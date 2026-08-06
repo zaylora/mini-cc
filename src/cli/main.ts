@@ -5,8 +5,23 @@ import { stdin, stdout } from "node:process";
 import { render } from "ink";
 import { createElement } from "react";
 import { createDefaultHookBus } from "@/hooks/index.js";
+import {
+  createObservability,
+  type ObservabilityLifecycle,
+} from "@/observability/index.js";
 import { scanSkills } from "@/tools/skill.js";
-import { App } from "@/tui/App.js";
+import { App, type AppProps } from "@/tui/App.js";
+
+export interface MainDependencies {
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+  scanSkills?: typeof scanSkills;
+  createHookBus?: typeof createDefaultHookBus;
+  createObservability?: () => Promise<ObservabilityLifecycle>;
+  renderTui?: (props: AppProps) => {
+    waitUntilExit(): Promise<void>;
+  };
+}
 
 export function parseWorkingDirectory(args: string[]): string {
   const cwdIndex = args.indexOf("--cwd");
@@ -23,22 +38,39 @@ export function shouldUseTui(
   return Boolean(input.isTTY && output.isTTY);
 }
 
-export async function main(args = process.argv.slice(2)): Promise<void> {
+export async function main(
+  args = process.argv.slice(2),
+  dependencies: MainDependencies = {},
+): Promise<void> {
   const workingDirectory = parseWorkingDirectory(args);
   process.chdir(workingDirectory);
+  const input = dependencies.input ?? stdin;
+  const output = dependencies.output ?? stdout;
 
-  if (!shouldUseTui(stdin, stdout)) {
-    stdout.write("mini-agent 的交互式界面需要在终端（TTY）中运行。\n");
+  if (!shouldUseTui(input, output)) {
+    output.write("mini-agent 的交互式界面需要在终端（TTY）中运行。\n");
     process.exitCode = 1;
     return;
   }
 
-  const skills = await scanSkills();
-  const hooks = createDefaultHookBus();
-  const { waitUntilExit } = render(
-    createElement(App, { workingDirectory, hooks, skills }),
-  );
-  await waitUntilExit();
+  const observability = await (
+    dependencies.createObservability ?? createObservability
+  )();
+  try {
+    const skills = await (dependencies.scanSkills ?? scanSkills)();
+    const hooks = (dependencies.createHookBus ?? createDefaultHookBus)();
+    const renderTui = dependencies.renderTui ?? ((props: AppProps) =>
+      render(createElement(App, props)));
+    const { waitUntilExit } = renderTui({
+      workingDirectory,
+      hooks,
+      skills,
+      telemetry: observability.telemetry,
+    });
+    await waitUntilExit();
+  } finally {
+    await observability.shutdown(2_000);
+  }
 }
 
 if (import.meta.main) {

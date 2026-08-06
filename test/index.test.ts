@@ -1,11 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseWorkingDirectory, shouldUseTui } from "@/cli/main.js";
+import { main, parseWorkingDirectory, shouldUseTui } from "@/cli/main.js";
+import { HookBus } from "@/hooks/bus.js";
 import { dispatch } from "@/tools/registry.js";
+import { createRecordingTelemetry } from "./helpers/recordingTelemetry.js";
 
 test("包入口可以正常加载", async () => {
-  await expect(import("@/index.js")).resolves.toBeDefined();
+  const entry = await import("@/index.js");
+  expect(entry.noopTelemetry).toBeDefined();
+});
+
+test("TUI 退出后关闭 observability 生命周期", async () => {
+  const telemetry = createRecordingTelemetry();
+  let receivedTelemetry: unknown;
+
+  await main([], {
+    input: { isTTY: true } as NodeJS.ReadStream,
+    output: { isTTY: true, write: () => true } as unknown as NodeJS.WriteStream,
+    scanSkills: async () => new Map(),
+    createHookBus: () => new HookBus(),
+    createObservability: async () => ({
+      telemetry,
+      shutdown: (timeoutMs) => telemetry.shutdown(timeoutMs),
+    }),
+    renderTui: (props) => {
+      receivedTelemetry = props.telemetry;
+      return { waitUntilExit: async () => {} };
+    },
+  });
+
+  expect(receivedTelemetry).toBe(telemetry);
+  expect(telemetry.shutdownCount).toBe(1);
 });
 
 describe("工作目录", () => {

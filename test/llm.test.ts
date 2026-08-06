@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "@anthropic-ai/sdk/resources/messages/messages";
 import { createState } from "@/core/state.js";
 import { callModelWithRecovery } from "@/core/llm.js";
+import { createRecordingTelemetry } from "./helpers/recordingTelemetry.js";
 
 describe("callModelWithRecovery", () => {
   test("首个 max_tokens 直接落入 continuation 续写，不重发", async () => {
@@ -48,6 +49,39 @@ describe("callModelWithRecovery", () => {
 
     expect(attempts).toBe(2);
     expect(delays).toEqual([2000]);
+  });
+
+  test("记录每次模型尝试的 Token、耗时和重试", async () => {
+    const state = createState();
+    const telemetry = createRecordingTelemetry();
+    let attempts = 0;
+
+    await callModelWithRecovery(state, {
+      system: "system",
+      tools: [],
+      telemetry,
+      request: async () => {
+        attempts += 1;
+        if (attempts === 1) throw apiError(429, "rate limit");
+        return response("end_turn", "完成", 12);
+      },
+      sleep: async () => {},
+      random: () => 0,
+    });
+
+    expect(state.metrics).toMatchObject({
+      inputTokens: 12,
+      outputTokens: 1,
+      modelCalls: 2,
+      retries: 1,
+    });
+    expect(state.metrics.modelDurationMs).toBeGreaterThanOrEqual(0);
+    expect(
+      telemetry.records.filter((record) => record.type === "generation"),
+    ).toHaveLength(2);
+    expect(
+      telemetry.records.filter((record) => record.name === "model-retry"),
+    ).toHaveLength(1);
   });
 
   test("瞬时错误重试前通知流式中断", async () => {
@@ -209,6 +243,7 @@ describe("callModelWithRecovery", () => {
     try {
       const state = createState();
       state.modelId = "test-model";
+      const telemetry = createRecordingTelemetry();
       const deltas: string[] = [];
       let flushed = false;
 
@@ -216,6 +251,7 @@ describe("callModelWithRecovery", () => {
         system: "system",
         tools: [],
         sleep: async () => {},
+        telemetry,
         onTextDelta: (text) => deltas.push(text),
         onStreamFlush: () => {
           flushed = true;
@@ -226,6 +262,11 @@ describe("callModelWithRecovery", () => {
       expect(flushed).toBe(true);
       expect(result.stop_reason).toBe("end_turn");
       expect(JSON.stringify(result.content)).toContain("hello world");
+      expect(state.metrics.firstTokenLatenciesMs).toHaveLength(1);
+      const generation = telemetry.records.find(
+        (record) => record.type === "generation",
+      );
+      expect(generation?.attributes.completionStartTime).toBeInstanceOf(Date);
     } finally {
       server.stop(true);
       if (previousApiKey === undefined) delete process.env.API_KEY;

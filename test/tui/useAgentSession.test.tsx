@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
 import { HookBus } from "@/hooks/bus.js";
+import { noopTelemetry } from "@/observability/noop.js";
+import type { Telemetry } from "@/observability/types.js";
 import {
   useAgentSession,
   type AgentSession,
@@ -13,12 +15,19 @@ import {
   useTestModel,
   waitFor,
 } from "./modelServer.js";
+import { createRecordingTelemetry } from "../helpers/recordingTelemetry.js";
 
 const emptySkills: SkillRegistry = new Map();
 let latestSession: AgentSession | undefined;
 
-function SessionHarness({ hooks }: { hooks: HookBus }): JSX.Element {
-  const session = useAgentSession({ hooks, skills: emptySkills });
+function SessionHarness({
+  hooks,
+  telemetry = noopTelemetry,
+}: {
+  hooks: HookBus;
+  telemetry?: Telemetry;
+}): JSX.Element {
+  const session = useAgentSession({ hooks, skills: emptySkills, telemetry });
   latestSession = session;
   return <Text>{session.busy ? "busy" : "idle"}</Text>;
 }
@@ -55,6 +64,32 @@ test("提交问题后记录用户输入和模型回复", async () => {
       { kind: "user", text: "你好" },
       { kind: "assistant-block", block: { kind: "paragraph" } },
     ]);
+  } finally {
+    view.unmount();
+    restore();
+    server.stop(true);
+  }
+});
+
+test("提交问题时使用注入的 telemetry 记录根 Agent", async () => {
+  const server = createStreamingModelServer([
+    { deltas: ["已记录"], stopReason: "end_turn" },
+  ]);
+  const restore = useTestModel(server.url.origin);
+  const telemetry = createRecordingTelemetry();
+  const view = render(
+    <SessionHarness hooks={new HookBus()} telemetry={telemetry} />,
+  );
+
+  try {
+    await flush();
+    await latestSession!.submit("记录这次任务");
+    await flush(50);
+
+    expect(telemetry.tree()).toMatchObject([{
+      type: "agent",
+      attributes: { input: "记录这次任务", output: "已记录" },
+    }]);
   } finally {
     view.unmount();
     restore();
